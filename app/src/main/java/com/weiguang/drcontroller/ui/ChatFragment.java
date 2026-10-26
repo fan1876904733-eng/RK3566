@@ -428,10 +428,27 @@ public class ChatFragment extends Fragment {
         MainActivity ma = (MainActivity) getActivity();
         String t = text.replaceAll("[\\s，。！？,.!?]", "");
 
+        // 用户是在询问口令，而不是查询已有报告数量，更不能在未确认时直接开始拍摄。
+        if ((t.contains("怎么说") || t.contains("如何说") || t.contains("说什么"))
+                && (t.contains("拍照") || t.contains("拍摄") || t.contains("全检"))
+                && (t.contains("报告") || t.contains("分析"))) {
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            String reply = "你可以直接说：**小农小农，帮我拍照并生成报告。**\n\n"
+                    + "我会自动拍摄实时图和热成像图、生成分析报告，并为你播报简要结论。完整报告可在分析报告或历史记录中查看。";
+            addAiBubble(reply);
+            speakLocalReply("你可以说，小农小农，帮我拍照并生成报告。我会自动拍照、分析并播报简要结论。");
+            return true;
+        }
+
         // ===== 查询统计类（本地统计直接回答，不打开页面）=====
         // 例："历史记录页面有几条AI分析报告" → 回答数量，而不是跳转页面
-        if (isQueryLike(t) && (t.contains("历史") || t.contains("记录")
-                || t.contains("分析") || t.contains("报告") || t.contains("案例"))) {
+        boolean asksForCount = t.contains("几") || t.contains("多少") || t.contains("哪些")
+                || t.contains("几个") || t.contains("有没有");
+        if (asksForCount && (t.contains("历史") || t.contains("记录") || t.contains("案例")
+                || ((t.contains("分析") || t.contains("报告"))
+                && !(t.contains("拍照") || t.contains("拍摄") || t.contains("全检"))))) {
             return answerHistoryStats(text);
         }
 
@@ -497,6 +514,8 @@ public class ChatFragment extends Fragment {
                 || t.contains("帮我拍") || t.contains("拍个看看") || t.contains("拍个分析")
                 || t.contains("拍一下看看") || t.contains("看看是什么") || t.contains("看看是啥")
                 || t.contains("轮拍") || t.contains("拍一遍") || t.contains("拍个全面的")
+                || ((t.contains("拍照") || t.contains("拍摄"))
+                && (t.contains("报告") || t.contains("出报告") || t.contains("生成报告")))
                 || ((t.contains("拍") || t.contains("拍照")) && (t.contains("分析") || t.contains("识别")))) {
             // 携带用户对拍摄目标的口语描述（如"我要拍一只白色的小兔子"）作为分析参考
             String hint = text.replaceAll("^(小农|小农助手|助手|帮我|给我|请|你好)[，,。\\s]*", "").trim();
