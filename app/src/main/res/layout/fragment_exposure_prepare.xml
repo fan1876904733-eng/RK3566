@@ -190,6 +190,17 @@
                     android:buttonTint="#00D8FF" android:checked="true" android:text="X-Ray"
                     android:textColor="#DCEBFA" android:textSize="13sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/selectionSummaryText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="本次操作：开启 X-Ray 射线源"
+                android:textColor="#00D8FF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <TextView
@@ -198,7 +209,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center"
-            android:text="射线源开关 · 长按保护"
+            android:text="选择模块后，长按按钮自动执行"
             android:textColor="#9AB6D8"
             android:textSize="11sp" />
 
@@ -208,7 +219,7 @@
             android:layout_height="64dp"
             android:layout_marginTop="5dp"
             android:background="@drawable/bg_exposure_hold"
-            android:text="长按 2 秒开启射线源"
+            android:text="长按 2 秒开启 X-Ray 射线源"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="16sp"

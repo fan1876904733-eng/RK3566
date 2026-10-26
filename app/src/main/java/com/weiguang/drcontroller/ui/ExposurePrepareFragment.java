@@ -32,6 +32,7 @@ public class ExposurePrepareFragment extends Fragment {
     private CheckBox cameraCheck;
     private CheckBox thermalCheck;
     private CheckBox xrayCheck;
+    private TextView selectionSummaryText;
     private boolean holdCompleted;
 
     private final Runnable refreshTask = new Runnable() {
@@ -63,6 +64,12 @@ public class ExposurePrepareFragment extends Fragment {
         cameraCheck = view.findViewById(R.id.selectCameraCheck);
         thermalCheck = view.findViewById(R.id.selectThermalCheck);
         xrayCheck = view.findViewById(R.id.selectXrayCheck);
+        selectionSummaryText = view.findViewById(R.id.selectionSummaryText);
+        android.widget.CompoundButton.OnCheckedChangeListener selectionListener =
+                (button, checked) -> updateSelectionText();
+        cameraCheck.setOnCheckedChangeListener(selectionListener);
+        thermalCheck.setOnCheckedChangeListener(selectionListener);
+        xrayCheck.setOnCheckedChangeListener(selectionListener);
 
         view.findViewById(R.id.cameraControlButton).setOnClickListener(v -> openCamera());
         view.findViewById(R.id.cameraPreviewEntry).setOnClickListener(v -> openCamera());
@@ -77,6 +84,7 @@ public class ExposurePrepareFragment extends Fragment {
 
         exposureButton.setOnTouchListener((v, event) -> handleExposureTouch(event));
         refreshStatus();
+        updateSelectionText();
     }
 
     @Override public void onResume() {
@@ -170,6 +178,31 @@ public class ExposurePrepareFragment extends Fragment {
 
     private void resetExposureButton() {
         holdCompleted = false;
-        if (exposureButton != null) exposureButton.setText("长按 2 秒开启射线源");
+        updateSelectionText();
+    }
+
+    private void updateSelectionText() {
+        if (cameraCheck == null || thermalCheck == null || xrayCheck == null) return;
+        boolean camera = cameraCheck.isChecked();
+        boolean thermal = thermalCheck.isChecked();
+        boolean xray = xrayCheck.isChecked();
+        StringBuilder modules = new StringBuilder();
+        if (camera) modules.append("可见光拍照");
+        if (thermal) appendModule(modules, "热成像拍照");
+        if (xray) appendModule(modules, "开启 X-Ray 射线源");
+        String action = modules.length() == 0 ? "尚未选择采集模块" : modules.toString();
+        if (selectionSummaryText != null) selectionSummaryText.setText("本次操作：" + action);
+        if (exposureButton != null) {
+            exposureButton.setEnabled(modules.length() > 0);
+            if (!camera && !thermal && xray) exposureButton.setText("长按 2 秒开启 X-Ray 射线源");
+            else if (camera && !thermal && !xray) exposureButton.setText("长按 2 秒拍摄可见光");
+            else if (!camera && thermal && !xray) exposureButton.setText("长按 2 秒拍摄热成像");
+            else exposureButton.setText("长按 2 秒开始组合采集");
+        }
+    }
+
+    private void appendModule(StringBuilder builder, String module) {
+        if (builder.length() > 0) builder.append(" + ");
+        builder.append(module);
     }
 }
