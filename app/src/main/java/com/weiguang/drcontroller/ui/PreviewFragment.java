@@ -430,7 +430,7 @@ public class PreviewFragment extends Fragment {
         if (cameraTextureView == null) return null;
         if (previewSize != null && previewSize.getWidth() > 0 && previewSize.getHeight() > 0) {
             try {
-                return mirrorBitmap(cameraTextureView.getBitmap(
+                return rotateBitmap180(cameraTextureView.getBitmap(
                         previewSize.getWidth(),
                         previewSize.getHeight()
                 ));
@@ -438,16 +438,16 @@ public class PreviewFragment extends Fragment {
                 // 回退到TextureView当前尺寸，不改变现有Camera2连接。
             }
         }
-        return mirrorBitmap(cameraTextureView.getBitmap());
+        return rotateBitmap180(cameraTextureView.getBitmap());
     }
 
-    private Bitmap mirrorBitmap(Bitmap source) {
+    private Bitmap rotateBitmap180(Bitmap source) {
         if (source == null) return null;
         Matrix matrix = new Matrix();
-        matrix.setScale(-1f, 1f, source.getWidth() / 2f, source.getHeight() / 2f);
-        Bitmap mirrored = Bitmap.createBitmap(source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
-        if (mirrored != source) source.recycle();
-        return mirrored;
+        matrix.setRotate(180f, source.getWidth() / 2f, source.getHeight() / 2f);
+        Bitmap rotated = Bitmap.createBitmap(source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
+        if (rotated != source) source.recycle();
+        return rotated;
     }
 
     /** 语音指令触发：等摄像头与热成像都就绪后自动"同时拍照"，最长等 8 秒 */
