@@ -83,6 +83,12 @@ public class ChatFragment extends Fragment {
     private TextView statusText;
 
     private OkHttpClient client;
+    /**
+     * Speech recognition must fail fast.  Reusing the chat client here used to
+     * leave the wake word path blocked for up to 60 seconds when Wi-Fi had no
+     * Internet access, making every later utterance look as if it was ignored.
+     */
+    private OkHttpClient speechClient;
     private Handler mainHandler;
     private final JSONArray messages = createInitialMessages();
 
@@ -248,6 +254,12 @@ public class ChatFragment extends Fragment {
 
         client = new OkHttpClient.Builder()
                 .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .build();
+        speechClient = new OkHttpClient.Builder()
+                .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
         mainHandler = new Handler(Looper.getMainLooper());
         preloadWakeAckAudio();
@@ -1127,7 +1139,7 @@ public class ChatFragment extends Fragment {
                 .url(url)
                 .post(RequestBody.create("", MediaType.parse("application/x-www-form-urlencoded")))
                 .build();
-        try (Response resp = client.newCall(request).execute()) {
+        try (Response resp = speechClient.newCall(request).execute()) {
             JSONObject json = new JSONObject(resp.body().string());
             String token = json.getString("access_token");
             prefs.edit()
@@ -1156,7 +1168,7 @@ public class ChatFragment extends Fragment {
                         MediaType.parse("application/json; charset=utf-8")
                 ))
                 .build();
-        try (Response resp = client.newCall(request).execute()) {
+        try (Response resp = speechClient.newCall(request).execute()) {
             return new JSONObject(resp.body().string());
         }
     }
