@@ -155,7 +155,7 @@
                     android:layout_marginStart="4dp"
                     android:layout_marginTop="3dp"
                     android:background="@drawable/bg_menu_normal"
-                    android:drawableStart="@drawable/ic_menu_xray"
+                    android:drawableStart="@drawable/ic_menu_exposure"
                     android:drawablePadding="8dp"
                     android:gravity="start|center_vertical"
                     android:minHeight="30dp"

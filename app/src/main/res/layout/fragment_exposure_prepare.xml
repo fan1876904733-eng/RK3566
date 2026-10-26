@@ -9,15 +9,17 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center"
         android:orientation="vertical"
-        android:padding="4dp">
+        android:padding="28dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_card_tech"
             android:orientation="vertical"
-            android:padding="12dp">
+            android:padding="12dp"
+            android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -102,7 +104,8 @@
             android:layout_marginTop="6dp"
             android:background="@drawable/bg_card_tech"
             android:orientation="vertical"
-            android:padding="12dp">
+            android:padding="12dp"
+            android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -166,17 +169,17 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center"
-            android:text="长按 2 秒，保存本次曝光前数据"
+            android:text="射线源开关 · 长按保护"
             android:textColor="#9AB6D8"
             android:textSize="11sp" />
 
         <Button
             android:id="@+id/exposureButton"
             android:layout_width="match_parent"
-            android:layout_height="54dp"
+            android:layout_height="64dp"
             android:layout_marginTop="5dp"
             android:background="@drawable/bg_exposure_hold"
-            android:text="长按开始曝光"
+            android:text="长按 2 秒开启射线源"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
@@ -188,7 +191,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="7dp"
             android:gravity="center"
-            android:text="当前未接入 433 MHz 控制模块，不会发送 X-Ray 命令"
+            android:text="● 433 MHz 控制模块待接入 · 短按不会触发"
             android:textColor="#FFD36A"
             android:textSize="11sp" />
     </LinearLayout>

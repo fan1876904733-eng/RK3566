@@ -271,7 +271,13 @@ public class PreviewFragment extends Fragment {
                     + " sizes=" + Arrays.toString(outputs)
                     + " selected=" + previewSize);
 
-            postUi(() -> showStatus("正在打开摄像头 · " + previewSize.getWidth() + "×" + previewSize.getHeight()));
+            postUi(() -> {
+                if (cameraTextureView instanceof AutoFitTextureView) {
+                    ((AutoFitTextureView) cameraTextureView).setAspectRatio(
+                            previewSize.getWidth(), previewSize.getHeight());
+                }
+                showStatus("正在打开摄像头 · " + previewSize.getWidth() + "×" + previewSize.getHeight());
+            });
 
             cameraManager.openCamera(selectedCameraId, cameraStateCallback, cameraHandler);
         } catch (Throwable t) {

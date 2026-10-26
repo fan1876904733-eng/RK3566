@@ -92,13 +92,19 @@
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="6dp" android:background="@drawable/bg_card_tech"
-            android:gravity="center_vertical" android:orientation="horizontal" android:padding="10dp">
-            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" android:text="原始相位波形"
-                android:textColor="#DCEBFA" android:textSize="12sp" android:textStyle="bold" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="当前固件帧尚未接入 · 不生成模拟数据"
-                android:textColor="#FFD36A" android:textSize="11sp" />
+            android:orientation="vertical" android:padding="10dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:gravity="center_vertical" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="原始相位波形"
+                    android:textColor="#DCEBFA" android:textSize="12sp" android:textStyle="bold" />
+                <TextView android:id="@+id/radarPhaseStatus" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="等待 0x0A13 相位帧"
+                    android:textColor="#FFD36A" android:textSize="11sp" />
+            </LinearLayout>
+            <com.weiguang.drcontroller.ui.RadarPhaseView
+                android:id="@+id/radarPhaseView" android:layout_width="match_parent"
+                android:layout_height="180dp" android:layout_marginTop="4dp" />
         </LinearLayout>
 
         <Button android:id="@+id/saveRadarSnapshotButton" android:layout_width="match_parent"

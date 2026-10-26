@@ -8,6 +8,7 @@
         android:id="@+id/thermalImageView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:background="#000000"
         android:contentDescription="热成像实时画面"
         android:scaleType="fitCenter" />
 

@@ -34,11 +34,14 @@ public class RadarDetailFragment extends Fragment {
     private TextView breathValue, heartValue, qualityValue, timeValue;
     private ProgressBar distanceBar;
     private RadarTrendView trendView;
+    private RadarPhaseView phaseView;
+    private TextView phaseStatus;
+    private long lastTrendSampleTime;
 
     private final Runnable refreshTask = new Runnable() {
         @Override public void run() {
             renderLatest();
-            handler.postDelayed(this, 1000L);
+            handler.postDelayed(this, 100L);
         }
     };
 
@@ -59,6 +62,8 @@ public class RadarDetailFragment extends Fragment {
         timeValue = view.findViewById(R.id.radarTimeValue);
         distanceBar = view.findViewById(R.id.radarDistanceBar);
         trendView = view.findViewById(R.id.radarTrendView);
+        phaseView = view.findViewById(R.id.radarPhaseView);
+        phaseStatus = view.findViewById(R.id.radarPhaseStatus);
 
         view.findViewById(R.id.radarConnectButton).setOnClickListener(v -> {
             MainActivity activity = activity();
@@ -104,7 +109,19 @@ public class RadarDetailFragment extends Fragment {
         qualityValue.setText("数据质量：" + quality(connected, distance, breath, heart));
         timeValue.setText("更新时间：" + (reading.getDataTimeMillis() > 0
                 ? timeFormat.format(new Date(reading.getDataTimeMillis())) : "--"));
-        trendView.addSample(distance, breath, heart);
+        long now = System.currentTimeMillis();
+        if (now - lastTrendSampleTime >= 1000L) {
+            lastTrendSampleTime = now;
+            trendView.addSample(distance, breath, heart);
+        }
+        if (reading.hasPhaseData()) {
+            phaseView.add(reading.getTotalPhase(), reading.getBreathPhase(), reading.getHeartPhase());
+            phaseStatus.setText("实时 0x0A13 数据");
+            phaseStatus.setTextColor(Color.parseColor("#00E58B"));
+        } else {
+            phaseStatus.setText("等待 0x0A13 相位帧");
+            phaseStatus.setTextColor(Color.parseColor("#FFD36A"));
+        }
     }
 
     private String quality(boolean connected, float distance, float breath, float heart) {

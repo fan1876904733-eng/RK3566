@@ -24,6 +24,7 @@ public final class HlkLd6002Protocol {
     private static final int TYPE_FW_STATUS = 0xFFFF;
     private static final int TYPE_HUMAN = 0x0F09;
     private static final int TYPE_BREATH = 0x0A14;
+    private static final int TYPE_PHASE = 0x0A13;
     private static final int TYPE_HEART = 0x0A15;
     private static final int TYPE_DISTANCE = 0x0A16;
     private static final int TYPE_TRACK_POSITION = 0x0A17;
@@ -38,6 +39,9 @@ public final class HlkLd6002Protocol {
     private String distance = "-- cm";
     private String breathRate = "-- bpm";
     private String heartRate = "-- bpm";
+    private float totalPhase = Float.NaN;
+    private float breathPhase = Float.NaN;
+    private float heartPhase = Float.NaN;
     private long validFrameCount = 0L;
     private long readingFrameCount = 0L;
     private int lastType = -1;
@@ -60,6 +64,9 @@ public final class HlkLd6002Protocol {
         distance = "-- cm";
         breathRate = "-- bpm";
         heartRate = "-- bpm";
+        totalPhase = Float.NaN;
+        breathPhase = Float.NaN;
+        heartPhase = Float.NaN;
         validFrameCount = 0L;
         readingFrameCount = 0L;
         lastType = -1;
@@ -188,6 +195,15 @@ public final class HlkLd6002Protocol {
                 }
                 break;
 
+            case TYPE_PHASE:
+                if (payload.length >= 12) {
+                    totalPhase = readFloatLe(payload, 0);
+                    breathPhase = readFloatLe(payload, 4);
+                    heartPhase = readFloatLe(payload, 8);
+                    changed = isFinite(totalPhase) || isFinite(breathPhase) || isFinite(heartPhase);
+                }
+                break;
+
             case TYPE_HEART:
                 if (payload.length >= 4) {
                     float rate = readFloatLe(payload, 0);
@@ -255,6 +271,9 @@ public final class HlkLd6002Protocol {
                             ? distance : "-- cm",
                     breathRate,
                     heartRate,
+                    totalPhase,
+                    breathPhase,
+                    heartPhase,
                     System.currentTimeMillis()
             ));
         }
@@ -287,6 +306,10 @@ public final class HlkLd6002Protocol {
                 && !Float.isInfinite(value)
                 && value >= min
                 && value <= max;
+    }
+
+    private boolean isFinite(float value) {
+        return !Float.isNaN(value) && !Float.isInfinite(value);
     }
 
     private void reportError(String message) {

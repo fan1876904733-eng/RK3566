@@ -14,6 +14,9 @@ public final class RadarReading {
     private final String distance;
     private final String breathRate;
     private final String heartRate;
+    private final float totalPhase;
+    private final float breathPhase;
+    private final float heartPhase;
     private final long dataTimeMillis;
 
     public RadarReading(
@@ -25,12 +28,31 @@ public final class RadarReading {
             String heartRate,
             long dataTimeMillis
     ) {
+        this(connected, deviceName, targetStatus, distance, breathRate, heartRate,
+                Float.NaN, Float.NaN, Float.NaN, dataTimeMillis);
+    }
+
+    public RadarReading(
+            boolean connected,
+            String deviceName,
+            String targetStatus,
+            String distance,
+            String breathRate,
+            String heartRate,
+            float totalPhase,
+            float breathPhase,
+            float heartPhase,
+            long dataTimeMillis
+    ) {
         this.connected = connected;
         this.deviceName = deviceName;
         this.targetStatus = targetStatus;
         this.distance = distance;
         this.breathRate = breathRate;
         this.heartRate = heartRate;
+        this.totalPhase = totalPhase;
+        this.breathPhase = breathPhase;
+        this.heartPhase = heartPhase;
         this.dataTimeMillis = dataTimeMillis;
     }
 
@@ -68,6 +90,18 @@ public final class RadarReading {
 
     public String getHeartRate() {
         return heartRate;
+    }
+
+    public float getTotalPhase() { return totalPhase; }
+
+    public float getBreathPhase() { return breathPhase; }
+
+    public float getHeartPhase() { return heartPhase; }
+
+    public boolean hasPhaseData() {
+        return !Float.isNaN(totalPhase)
+                || !Float.isNaN(breathPhase)
+                || !Float.isNaN(heartPhase);
     }
 
     public long getDataTimeMillis() {

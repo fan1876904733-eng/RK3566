@@ -1,6 +1,5 @@
 package com.weiguang.drcontroller.ui;
 
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -40,7 +39,7 @@ public class ExposurePrepareFragment extends Fragment {
 
     private final Runnable holdTask = () -> {
         holdCompleted = true;
-        if (exposureButton != null) exposureButton.setText("松开并确认");
+        if (exposureButton != null) exposureButton.setText("松开执行");
     };
 
     @Nullable
@@ -95,7 +94,7 @@ public class ExposurePrepareFragment extends Fragment {
         if (event.getAction() == MotionEvent.ACTION_UP) {
             handler.removeCallbacks(holdTask);
             exposureButton.performClick();
-            if (holdCompleted) showFinalConfirmation();
+            if (holdCompleted) savePreparation();
             else resetExposureButton();
             return true;
         }
@@ -106,22 +105,11 @@ public class ExposurePrepareFragment extends Fragment {
         return true;
     }
 
-    private void showFinalConfirmation() {
-        resetExposureButton();
-        new AlertDialog.Builder(requireContext())
-                .setTitle("确认曝光准备")
-                .setMessage("将保存当前毫米波雷达数据。433 MHz 控制模块尚未接入，本次不会向 X-Ray 设备发送曝光命令。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("保存准备数据", (dialog, which) -> savePreparation())
-                .show();
-    }
-
     private void savePreparation() {
         MainActivity activity = activity();
         if (activity == null) return;
         String caseId = activity.saveExposurePreparation();
-        exposureResultText.setText("准备数据已保存（" + caseId + "）；X-Ray 命令未发送");
-        Toast.makeText(requireContext(), "曝光前数据已安全保存", Toast.LENGTH_SHORT).show();
+        exposureResultText.setText("操作记录已保存（" + caseId + "）；433 MHz 未接入，射线源命令未发送");
     }
 
     private void refreshStatus() {
@@ -161,6 +149,6 @@ public class ExposurePrepareFragment extends Fragment {
 
     private void resetExposureButton() {
         holdCompleted = false;
-        if (exposureButton != null) exposureButton.setText("长按开始曝光");
+        if (exposureButton != null) exposureButton.setText("长按 2 秒开启射线源");
     }
 }
