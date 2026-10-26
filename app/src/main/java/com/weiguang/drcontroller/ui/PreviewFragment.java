@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -91,6 +92,7 @@ public class PreviewFragment extends Fragment {
     private boolean pairedCaptureRunning;
     // 语音"同时拍照"：等待摄像头+热成像就绪后自动拍照
     private boolean autoCaptureOnReady;
+    private boolean autoCameraOnly;
     private Runnable autoCaptureCheck;
     private int autoCaptureWaitCount;
     // 一键全检支持：同时拍照成功后的回调（由 MainActivity 设置，用于触发 AI 分析）
@@ -142,6 +144,12 @@ public class PreviewFragment extends Fragment {
         this.autoCaptureOnReady = autoCaptureOnReady;
     }
 
+    public PreviewFragment(boolean autoCaptureOnReady, boolean autoCameraOnly) {
+        super(R.layout.fragment_preview);
+        this.autoCaptureOnReady = autoCaptureOnReady;
+        this.autoCameraOnly = autoCameraOnly;
+    }
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -149,7 +157,7 @@ public class PreviewFragment extends Fragment {
         cameraTextureView = view.findViewById(R.id.cameraTextureView);
         cameraStatusText = view.findViewById(R.id.cameraStatusText);
         captureButton = view.findViewById(R.id.captureButton);
-        pairedCaptureButton = view.findViewById(R.id.pairedCaptureButton);
+        pairedCaptureButton = null; // 同时拍照入口已移至“准备曝光”的模块组合选择
         cameraControlButton = view.findViewById(R.id.cameraControlButton);
         cameraBlackMask = view.findViewById(R.id.cameraBlackMask);
 
@@ -187,7 +195,8 @@ public class PreviewFragment extends Fragment {
                     setControlState(true);
                     if (autoCaptureOnReady) {
                         autoCaptureOnReady = false;
-                        scheduleAutoCapture();
+                        if (autoCameraOnly) mainHandler.postDelayed(PreviewFragment.this::takeCameraOnlyPhoto, 350L);
+                        else scheduleAutoCapture();
                     }
                 }
                 cacheCurrentCameraFrameIfNeeded();
@@ -199,7 +208,7 @@ public class PreviewFragment extends Fragment {
             else checkCameraPermission();
         });
         captureButton.setOnClickListener(v -> takeCameraOnlyPhoto());
-        pairedCaptureButton.setOnClickListener(v -> takePairedPhoto());
+        if (pairedCaptureButton != null) pairedCaptureButton.setOnClickListener(v -> takePairedPhoto());
 
         checkCameraPermission();
     }
@@ -421,15 +430,24 @@ public class PreviewFragment extends Fragment {
         if (cameraTextureView == null) return null;
         if (previewSize != null && previewSize.getWidth() > 0 && previewSize.getHeight() > 0) {
             try {
-                return cameraTextureView.getBitmap(
+                return mirrorBitmap(cameraTextureView.getBitmap(
                         previewSize.getWidth(),
                         previewSize.getHeight()
-                );
+                ));
             } catch (Throwable ignored) {
                 // 回退到TextureView当前尺寸，不改变现有Camera2连接。
             }
         }
-        return cameraTextureView.getBitmap();
+        return mirrorBitmap(cameraTextureView.getBitmap());
+    }
+
+    private Bitmap mirrorBitmap(Bitmap source) {
+        if (source == null) return null;
+        Matrix matrix = new Matrix();
+        matrix.setScale(-1f, 1f, source.getWidth() / 2f, source.getHeight() / 2f);
+        Bitmap mirrored = Bitmap.createBitmap(source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
+        if (mirrored != source) source.recycle();
+        return mirrored;
     }
 
     /** 语音指令触发：等摄像头与热成像都就绪后自动"同时拍照"，最长等 8 秒 */

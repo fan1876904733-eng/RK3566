@@ -8,6 +8,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,6 +29,9 @@ public class ExposurePrepareFragment extends Fragment {
     private TextView radarStatusText;
     private TextView exposureResultText;
     private Button exposureButton;
+    private CheckBox cameraCheck;
+    private CheckBox thermalCheck;
+    private CheckBox xrayCheck;
     private boolean holdCompleted;
 
     private final Runnable refreshTask = new Runnable() {
@@ -56,6 +60,9 @@ public class ExposurePrepareFragment extends Fragment {
         radarStatusText = view.findViewById(R.id.radarStatusText);
         exposureResultText = view.findViewById(R.id.exposureResultText);
         exposureButton = view.findViewById(R.id.exposureButton);
+        cameraCheck = view.findViewById(R.id.selectCameraCheck);
+        thermalCheck = view.findViewById(R.id.selectThermalCheck);
+        xrayCheck = view.findViewById(R.id.selectXrayCheck);
 
         view.findViewById(R.id.cameraControlButton).setOnClickListener(v -> openCamera());
         view.findViewById(R.id.cameraPreviewEntry).setOnClickListener(v -> openCamera());
@@ -108,8 +115,22 @@ public class ExposurePrepareFragment extends Fragment {
     private void savePreparation() {
         MainActivity activity = activity();
         if (activity == null) return;
-        String caseId = activity.saveExposurePreparation();
-        exposureResultText.setText("操作记录已保存（" + caseId + "）；433 MHz 未接入，射线源命令未发送");
+        boolean camera = cameraCheck != null && cameraCheck.isChecked();
+        boolean thermal = thermalCheck != null && thermalCheck.isChecked();
+        boolean xray = xrayCheck != null && xrayCheck.isChecked();
+        if (!camera && !thermal && !xray) {
+            exposureResultText.setText("请至少选择一个采集模块");
+            return;
+        }
+        if (xray) {
+            String caseId = activity.saveExposurePreparation();
+            exposureResultText.setText("X-Ray记录 " + caseId + " 已保存；433 MHz 未接入，射线源命令未发送");
+        } else {
+            exposureResultText.setText("正在启动所选模块…");
+        }
+        if (camera && thermal) activity.capturePairedPhotoByCommand();
+        else if (camera) activity.captureCameraOnlyFromExposure();
+        else if (thermal) activity.captureThermalOnlyFromExposure();
     }
 
     private void refreshStatus() {

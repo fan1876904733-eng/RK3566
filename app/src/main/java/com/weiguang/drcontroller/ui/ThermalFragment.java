@@ -94,6 +94,7 @@ public class ThermalFragment extends Fragment {
     private long lastDisplayedMs;
     private long lastFrameArrivalMs;
     private int noFrameRetries;
+    private boolean autoCaptureOnFirstFrame;
 
     /**
      * 无帧自愈：SDK 状态"正常"但若干秒内收不到任何帧（RK3566 USB 主机栈偶发异常时，
@@ -130,6 +131,11 @@ public class ThermalFragment extends Fragment {
 
     public ThermalFragment() {
         super(R.layout.fragment_thermal);
+    }
+
+    public ThermalFragment(boolean autoCaptureOnFirstFrame) {
+        super(R.layout.fragment_thermal);
+        this.autoCaptureOnFirstFrame = autoCaptureOnFirstFrame;
     }
 
     @Override
@@ -277,6 +283,10 @@ public class ThermalFragment extends Fragment {
         imageView.setImageBitmap(bitmap);
         blackMask.setVisibility(View.GONE);
         statusText.setText("● 热成像画面正常");
+        if (autoCaptureOnFirstFrame) {
+            autoCaptureOnFirstFrame = false;
+            mainHandler.postDelayed(this::takeThermalPhoto, 300L);
+        }
     }
 
     private void stopThermal(String message) {

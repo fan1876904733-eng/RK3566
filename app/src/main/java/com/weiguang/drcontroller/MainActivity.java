@@ -839,6 +839,20 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
+    public void captureCameraOnlyFromExposure() {
+        openPage(
+                new PreviewFragment(true, true), cameraPreviewButton,
+                "摄像头", "曝光组合：自动拍摄可见光图像", RadarPanelMode.HIDDEN
+        );
+    }
+
+    public void captureThermalOnlyFromExposure() {
+        openPage(
+                new ThermalFragment(true), thermalPreviewButton,
+                "热成像", "曝光组合：自动拍摄热成像", RadarPanelMode.HIDDEN
+        );
+    }
+
     private String lastCapturedCaseId;
 
     /** 最近一次拍摄（同时拍照/一键全检）生成的案例 ID；没有则为 null */

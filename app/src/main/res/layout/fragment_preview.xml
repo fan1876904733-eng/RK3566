@@ -8,7 +8,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_gravity="center"
-        android:keepScreenOn="true" />
+        android:keepScreenOn="true"
+        android:scaleX="-1" />
 
     <View
         android:id="@+id/cameraBlackMask"
@@ -42,21 +43,6 @@
         android:paddingEnd="10dp"
         android:paddingBottom="6dp"
         android:text="正在启动摄像头..."
-        android:textColor="#FFFFFF"
-        android:textSize="12sp" />
-
-    <!-- 右上角：同时拍照（实时图 + 热成像） -->
-    <Button
-        android:id="@+id/pairedCaptureButton"
-        android:layout_width="128dp"
-        android:layout_height="40dp"
-        android:layout_gravity="end|top"
-        android:layout_margin="10dp"
-        android:backgroundTint="#00B4D8"
-        android:enabled="false"
-        android:minHeight="0dp"
-        android:text="同时拍照"
-        android:textAllCaps="false"
         android:textColor="#FFFFFF"
         android:textSize="12sp" />
 
