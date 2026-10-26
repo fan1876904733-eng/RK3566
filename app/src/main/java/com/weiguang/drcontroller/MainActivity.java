@@ -103,6 +103,7 @@ public class MainActivity extends AppCompatActivity {
     private Button homeButton;
     private Button cameraPreviewButton;
     private Button thermalPreviewButton;
+    private Button radarDetailButton;
     private Button exposurePrepareButton;
     private Button xrayPreviewButton;
     private Button aiButton;
@@ -427,6 +428,7 @@ public class MainActivity extends AppCompatActivity {
         homeButton = findViewById(R.id.homeButton);
         cameraPreviewButton = findViewById(R.id.cameraPreviewButton);
         thermalPreviewButton = findViewById(R.id.thermalPreviewButton);
+        radarDetailButton = findViewById(R.id.radarDetailButton);
         exposurePrepareButton = findViewById(R.id.exposurePrepareButton);
         xrayPreviewButton = findViewById(R.id.xrayPreviewButton);
         aiButton = findViewById(R.id.aiButton);
@@ -453,7 +455,7 @@ public class MainActivity extends AppCompatActivity {
                         cameraPreviewButton,
                         "摄像头",
                         "拍照只存实时图，右上角同时拍照可连存热成像",
-                        RadarPanelMode.LIVE
+                        RadarPanelMode.HIDDEN
                 )
         );
 
@@ -463,9 +465,11 @@ public class MainActivity extends AppCompatActivity {
                         thermalPreviewButton,
                         "热成像",
                         "热成像实时预览",
-                        RadarPanelMode.LIVE
+                        RadarPanelMode.HIDDEN
                 )
         );
+
+        radarDetailButton.setOnClickListener(view -> openRadarDetailPage());
 
         exposurePrepareButton.setOnClickListener(view -> openExposurePreparePage());
 
@@ -556,6 +560,7 @@ public class MainActivity extends AppCompatActivity {
                 homeButton,
                 cameraPreviewButton,
                 thermalPreviewButton,
+                radarDetailButton,
                 exposurePrepareButton,
                 xrayPreviewButton,
                 aiButton,
@@ -816,7 +821,7 @@ public class MainActivity extends AppCompatActivity {
                 cameraPreviewButton,
                 "摄像头",
                 "一次拍照同时保存实时图和热成像图",
-                RadarPanelMode.LIVE
+                RadarPanelMode.HIDDEN
         );
     }
 
@@ -830,7 +835,7 @@ public class MainActivity extends AppCompatActivity {
                 cameraPreviewButton,
                 "摄像头",
                 "一次拍照同时保存实时图和热成像图",
-                RadarPanelMode.LIVE
+                RadarPanelMode.HIDDEN
         );
     }
 
@@ -893,7 +898,7 @@ public class MainActivity extends AppCompatActivity {
                 cameraPreviewButton,
                 "摄像头",
                 "一键全检：自动拍摄并调用AI分析",
-                RadarPanelMode.LIVE
+                RadarPanelMode.HIDDEN
         );
     }
 
@@ -903,7 +908,17 @@ public class MainActivity extends AppCompatActivity {
                 thermalPreviewButton,
                 "热成像",
                 "热成像实时预览",
-                RadarPanelMode.LIVE
+                RadarPanelMode.HIDDEN
+        );
+    }
+
+    public void openRadarDetailPage() {
+        openPage(
+                new com.weiguang.drcontroller.ui.RadarDetailFragment(),
+                radarDetailButton,
+                "毫米波雷达",
+                "目标状态、距离、呼吸、心率与最近60秒趋势",
+                RadarPanelMode.HIDDEN
         );
     }
 

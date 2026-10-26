@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_root_gradient"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="6dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_card_tech"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:id="@+id/radarConnectionTitle" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="● 毫米波雷达待连接"
+                    android:textColor="#FFAA00" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:id="@+id/radarDeviceName" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:layout_marginTop="3dp"
+                    android:text="等待设备数据" android:textColor="#8AA4C8" android:textSize="11sp" />
+            </LinearLayout>
+
+            <Button android:id="@+id/radarConnectButton" android:layout_width="108dp"
+                android:layout_height="38dp" android:background="@drawable/bg_btn_new"
+                android:text="连接/重连" android:textAllCaps="false" android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:orientation="horizontal">
+            <TextView android:id="@+id/radarTargetValue" style="@style/RadarValueCard" android:text="目标\n--" />
+            <Space android:layout_width="6dp" android:layout_height="1dp" />
+            <TextView android:id="@+id/radarDistanceValue" style="@style/RadarValueCard" android:text="距离\n-- cm" />
+            <Space android:layout_width="6dp" android:layout_height="1dp" />
+            <TextView android:id="@+id/radarBreathValue" style="@style/RadarValueCard" android:text="呼吸\n-- bpm" />
+            <Space android:layout_width="6dp" android:layout_height="1dp" />
+            <TextView android:id="@+id/radarHeartValue" style="@style/RadarValueCard" android:text="心率\n-- bpm" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:orientation="horizontal">
+            <LinearLayout android:layout_width="0dp" android:layout_height="match_parent"
+                android:layout_weight="0.8" android:background="@drawable/bg_card_tech"
+                android:orientation="vertical" android:padding="12dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="一维目标位置" android:textColor="#FFFFFF" android:textSize="14sp"
+                    android:textStyle="bold" />
+                <ProgressBar android:id="@+id/radarDistanceBar" style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent" android:layout_height="18dp"
+                    android:layout_marginTop="12dp" android:max="150" android:progress="0"
+                    android:progressTint="#00D8FF" />
+                <TextView android:id="@+id/radarRangeHint" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:gravity="center"
+                    android:text="有效测量范围 40–150 cm" android:textColor="#8AA4C8"
+                    android:textSize="11sp" />
+                <TextView android:id="@+id/radarQualityValue" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                    android:text="数据质量：等待数据" android:textColor="#FFD36A" android:textSize="12sp" />
+                <TextView android:id="@+id/radarTimeValue" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="5dp"
+                    android:text="更新时间：--" android:textColor="#8AA4C8" android:textSize="11sp" />
+            </LinearLayout>
+
+            <Space android:layout_width="6dp" android:layout_height="1dp" />
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="match_parent"
+                android:layout_weight="1.8" android:background="@drawable/bg_card_tech"
+                android:orientation="vertical" android:padding="10dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="最近60秒趋势"
+                        android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="●距离  ●呼吸  ●心率" android:textColor="#9AB6D8" android:textSize="10sp" />
+                </LinearLayout>
+                <com.weiguang.drcontroller.ui.RadarTrendView
+                    android:id="@+id/radarTrendView" android:layout_width="match_parent"
+                    android:layout_height="150dp" android:layout_marginTop="4dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:background="@drawable/bg_card_tech"
+            android:gravity="center_vertical" android:orientation="horizontal" android:padding="10dp">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="原始相位波形"
+                android:textColor="#DCEBFA" android:textSize="12sp" android:textStyle="bold" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="当前固件帧尚未接入 · 不生成模拟数据"
+                android:textColor="#FFD36A" android:textSize="11sp" />
+        </LinearLayout>
+
+        <Button android:id="@+id/saveRadarSnapshotButton" android:layout_width="match_parent"
+            android:layout_height="42dp" android:layout_marginTop="6dp"
+            android:background="@drawable/bg_btn_view" android:text="保存当前雷达数据到新案例"
+            android:textAllCaps="false" android:textColor="#FFFFFF" android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>
