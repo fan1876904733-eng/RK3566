@@ -1,0 +1,540 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_root_gradient"
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    android:padding="10dp">
+
+    <!-- ============ 左侧固定侧边栏（约220dp） ============ -->
+    <LinearLayout
+        android:layout_width="172dp"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_sidebar"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- 校徽/Logo + 校名 -->
+        <ImageView
+            android:layout_width="66dp"
+            android:layout_height="72dp"
+            android:layout_gravity="center_horizontal"
+            android:contentDescription="江西农业大学校徽"
+            android:scaleType="fitCenter"
+            android:src="@drawable/logo_jxau" />
+
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="#3300B4FF" />
+
+        <!-- 微光智造：青色发光大字 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:letterSpacing="0.2"
+            android:shadowColor="#00E5FF"
+            android:shadowDx="0"
+            android:shadowDy="0"
+            android:shadowRadius="24"
+            android:text="微光智造"
+            android:textColor="#00E5FF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <ScrollView
+            android:id="@+id/functionMenuScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:fillViewport="false"
+            android:overScrollMode="ifContentScrolls"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- 设备首页：选中态渐变发光 -->
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/homeButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_menu_selected"
+                    android:drawableStart="@drawable/ic_menu_home"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="34dp"
+                    android:paddingStart="10dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="设备首页"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:layout_marginBottom="4dp"
+                    android:text="实时预览"
+                    android:textColor="#9AB6D8"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/cameraPreviewButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_camera"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="30dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="摄像头"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="12sp" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/thermalPreviewButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="3dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_thermal"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="30dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="热成像"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="12sp" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/exposurePrepareButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="3dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_xray"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="30dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="准备曝光"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="12sp" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/xrayPreviewButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="3dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_xray"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="30dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="X-Ray"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="12sp" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/aiButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_ai"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="32dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="AI分析"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="13sp" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/historyButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_history"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="32dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="历史记录"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="13sp" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/aiAssistantButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:background="@drawable/bg_menu_normal"
+                    android:drawableStart="@drawable/ic_menu_ai"
+                    android:drawablePadding="8dp"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="32dp"
+                    android:paddingStart="8dp"
+                    android:stateListAnimator="@null"
+                    app:backgroundTint="@null"
+                    android:text="小农助手"
+                    android:textAllCaps="false"
+                    android:textColor="#C8D8E8"
+                    android:textSize="13sp" />
+
+            </LinearLayout>
+
+        </ScrollView>
+
+    </LinearLayout>
+
+    <Space
+        android:layout_width="8dp"
+        android:layout_height="match_parent" />
+
+    <!-- ============ 右侧主内容区 ============ -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- 顶部 Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/pageTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="设备首页"
+                    android:textColor="#FFFFFF"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/pageDescription"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="微光智造多模态影像终端"
+                    android:textColor="#8AA4C8"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- slogan：三道斜杠装饰 + 文字 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.05"
+                    android:text="///"
+                    android:textColor="#00E5FF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:gravity="end"
+                    android:letterSpacing="0.06"
+                    android:text="科技赋能农业 · 影像洞察生命"
+                    android:textColor="#00AAFF"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/pageContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:background="#0A1628" />
+
+        <!-- 底部全局状态条（首页隐藏，其余页面显示） -->
+        <HorizontalScrollView
+            android:id="@+id/bottomStatusBar"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_sidebar"
+            android:fillViewport="true"
+            android:overScrollMode="ifContentScrolls"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:minWidth="570dp"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp">
+
+                <TextView
+                    android:id="@+id/cameraConnectionText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="● 摄像头待连接"
+                    android:textColor="#FFAA00"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:id="@+id/thermalConnectionText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="● 热成像待连接"
+                    android:textColor="#FFAA00"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:id="@+id/xrayConnectionText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text=""
+                    android:textColor="#FFAA00"
+                    android:textSize="10sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/systemConnectionText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.8"
+                    android:text="● 毫米波雷达待连接"
+                    android:textColor="#FFAA00"
+                    android:textSize="10sp" />
+
+            </LinearLayout>
+
+        </HorizontalScrollView>
+
+    </LinearLayout>
+
+    <Space
+        android:id="@+id/radarPanelSpacer"
+        android:layout_width="8dp"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- 右侧毫米波实时数据面板 -->
+    <ScrollView
+        android:id="@+id/radarPanel"
+        android:layout_width="210dp"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_sidebar"
+        android:fillViewport="true"
+        android:overScrollMode="ifContentScrolls"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="13dp">
+
+            <TextView
+                android:id="@+id/radarTitleText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="毫米波雷达实时数据"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/radarSubtitleText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="物体 / 距离 / 呼吸 / 心率"
+                android:textColor="#8AA4C8"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/radarConnectionText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="13dp"
+                android:text="● 雷达待连接"
+                android:textColor="#FFAA00"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/radarDeviceText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:ellipsize="end"
+                android:maxLines="3"
+                android:text="等待数据连接"
+                android:textColor="#8AA4C8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="13dp"
+                android:text="物体状态"
+                android:textColor="#8AA4C8"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/radarTargetText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="未检测到物体"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="11dp"
+                android:text="物体距离"
+                android:textColor="#8AA4C8"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/radarDistanceText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="-- cm"
+                android:textColor="#FFFFFF"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="11dp"
+                android:text="呼吸频率"
+                android:textColor="#8AA4C8"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/radarBreathText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="-- bpm"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="11dp"
+                android:text="心率"
+                android:textColor="#8AA4C8"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/radarHeartText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="-- bpm"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/radarTimestampLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="11dp"
+                android:text="数据时间"
+                android:textColor="#8AA4C8"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/radarTimestampText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/radarControlButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/bg_btn_new"
+                android:minHeight="46dp"
+                android:stateListAnimator="@null"
+                app:backgroundTint="@null"
+                android:text="连接毫米波雷达"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

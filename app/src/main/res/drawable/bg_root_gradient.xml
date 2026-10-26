@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 根背景：深蓝→藏青渐变 + 极淡科技网格 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="#0A1628"
+                android:endColor="#0D1F3C" />
+        </shape>
+    </item>
+    <item>
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/grid_pattern"
+            android:tileMode="repeat" />
+    </item>
+</layer-list>

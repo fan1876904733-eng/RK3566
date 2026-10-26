@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 生猪线稿装饰图：农业影像检测主题 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="96dp"
+    android:viewportWidth="120"
+    android:viewportHeight="96">
+
+    <!-- 身体 -->
+    <path
+        android:pathData="M34,34 C34,22 60,14 84,20 C102,24 107,39 103,51 C98,64 70,70 52,64 C41,60 34,48 34,34 Z"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000" />
+
+    <!-- 头 + 吻部 -->
+    <path
+        android:pathData="M13,32 C5,34 3,43 9,48 C13,51 21,51 25,47 L40,38 C40,38 37,43 35,48 C33,54 25,58 17,56 C9,54 6,47 8,41"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000" />
+
+    <!-- 耳朵 -->
+    <path
+        android:pathData="M20,31 L16,19 L28,25 Z"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2"
+        android:fillColor="#00000000" />
+
+    <!-- 眼睛 -->
+    <path
+        android:pathData="M22,37 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="1.5"
+        android:fillColor="#4FC3F7" />
+
+    <!-- 前腿 -->
+    <path
+        android:pathData="M46,58 L46,76"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000" />
+
+    <!-- 前腿2 -->
+    <path
+        android:pathData="M60,62 L60,80"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000" />
+
+    <!-- 后腿 -->
+    <path
+        android:pathData="M80,62 L80,80"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000" />
+
+    <!-- 后腿2 -->
+    <path
+        android:pathData="M94,56 L94,74"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000" />
+
+    <!-- 卷尾 -->
+    <path
+        android:pathData="M99,30 C108,24 114,31 107,37 C103,41 98,37 101,33"
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2"
+        android:fillColor="#00000000" />
+
+</vector>

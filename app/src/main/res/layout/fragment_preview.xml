@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_root_gradient">
+    <TextureView
+        android:id="@+id/cameraTextureView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:keepScreenOn="true" />
+
+    <View
+        android:id="@+id/cameraBlackMask"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="visible" />
+
+    <View
+        android:layout_width="1dp"
+        android:layout_height="70dp"
+        android:layout_gravity="center"
+        android:background="#80FFFFFF" />
+
+    <View
+        android:layout_width="70dp"
+        android:layout_height="1dp"
+        android:layout_gravity="center"
+        android:background="#80FFFFFF" />
+
+    <TextView
+        android:id="@+id/cameraStatusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|top"
+        android:layout_margin="10dp"
+        android:background="#D9071018"
+        android:maxWidth="650dp"
+        android:paddingStart="10dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="6dp"
+        android:text="正在启动摄像头..."
+        android:textColor="#FFFFFF"
+        android:textSize="12sp" />
+
+    <!-- 右上角：同时拍照（实时图 + 热成像） -->
+    <Button
+        android:id="@+id/pairedCaptureButton"
+        android:layout_width="128dp"
+        android:layout_height="40dp"
+        android:layout_gravity="end|top"
+        android:layout_margin="10dp"
+        android:backgroundTint="#00B4D8"
+        android:enabled="false"
+        android:minHeight="0dp"
+        android:text="同时拍照"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:layout_margin="12dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/captureButton"
+            android:layout_width="118dp"
+            android:layout_height="44dp"
+            android:backgroundTint="#1976D2"
+            android:enabled="false"
+            android:minHeight="0dp"
+            android:text="拍照"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/cameraControlButton"
+            android:layout_width="125dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#1976D2"
+            android:minHeight="0dp"
+            android:text="启动摄像头"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+    </LinearLayout>
+
+
+
+    <!-- 后台热成像采集：继续复用现有 ThermalFragment/SDK 连接逻辑，不另写连接实现。 -->
+    <FrameLayout
+        android:id="@+id/pairedThermalCaptureContainer"
+        android:layout_width="2dp"
+        android:layout_height="2dp"
+        android:layout_gravity="start|bottom"
+        android:alpha="0.01"
+        android:importantForAccessibility="no" />
+
+</FrameLayout>

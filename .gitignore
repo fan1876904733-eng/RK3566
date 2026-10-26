@@ -1,0 +1,15 @@
+# Android / Gradle generated files
+.gradle/
+build/
+app/build/
+local.properties
+
+# IDE and operating-system files
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local diagnostics and temporary files
+tmp_*/
+*.log
