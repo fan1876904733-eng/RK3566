@@ -72,9 +72,8 @@
 
             <Button
                 android:id="@+id/aiAnalyzeButton"
-                android:layout_width="0dp"
+                android:layout_width="220dp"
                 android:layout_height="48dp"
-                android:layout_weight="1"
                 android:backgroundTint="#1976D2"
                 android:enabled="false"
                 android:minHeight="0dp"
@@ -85,13 +84,12 @@
 
             <Button
                 android:id="@+id/aiViewReportButton"
-                android:layout_width="0dp"
+                android:layout_width="220dp"
                 android:layout_height="48dp"
                 android:layout_marginStart="14dp"
-                android:layout_weight="1"
                 android:backgroundTint="#1976D2"
                 android:minHeight="0dp"
-                android:text="查看报告"
+                android:text="查询报告"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
