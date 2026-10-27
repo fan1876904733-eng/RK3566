@@ -957,6 +957,17 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
+    public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult startXrayExposureByCommand() {
+        saveExposurePreparation();
+        return com.weiguang.drcontroller.hardware.xray.Xray433Controller
+                .getInstance(this).startExposure();
+    }
+
+    public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult stopXrayExposureByCommand() {
+        return com.weiguang.drcontroller.hardware.xray.Xray433Controller
+                .getInstance(this).stopAll();
+    }
+
     /**
      * 保存曝光前的毫米波快照。当前版本尚未接入 433 MHz 发射模块，
      * 因此这里只归档准备数据，绝不伪造已经发出 X-Ray 曝光命令的状态。

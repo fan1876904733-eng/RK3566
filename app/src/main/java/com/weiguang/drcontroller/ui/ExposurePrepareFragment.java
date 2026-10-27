@@ -19,6 +19,7 @@ import androidx.fragment.app.Fragment;
 import com.weiguang.drcontroller.MainActivity;
 import com.weiguang.drcontroller.R;
 import com.weiguang.drcontroller.hardware.radar.RadarReading;
+import com.weiguang.drcontroller.hardware.xray.Xray433Controller;
 
 /** 简化的曝光准备台。实际 433 MHz 控制接入前，只保存准备数据，不发送曝光命令。 */
 public class ExposurePrepareFragment extends Fragment {
@@ -33,6 +34,8 @@ public class ExposurePrepareFragment extends Fragment {
     private CheckBox thermalCheck;
     private CheckBox xrayCheck;
     private TextView selectionSummaryText;
+    private TextView xraySequenceStatusText;
+    private Xray433Controller xrayController;
     private boolean holdCompleted;
 
     private final Runnable refreshTask = new Runnable() {
@@ -65,6 +68,8 @@ public class ExposurePrepareFragment extends Fragment {
         thermalCheck = view.findViewById(R.id.selectThermalCheck);
         xrayCheck = view.findViewById(R.id.selectXrayCheck);
         selectionSummaryText = view.findViewById(R.id.selectionSummaryText);
+        xraySequenceStatusText = view.findViewById(R.id.xraySequenceStatusText);
+        xrayController = Xray433Controller.getInstance(requireContext());
         android.widget.CompoundButton.OnCheckedChangeListener selectionListener =
                 (button, checked) -> updateSelectionText();
         cameraCheck.setOnCheckedChangeListener(selectionListener);
@@ -81,6 +86,12 @@ public class ExposurePrepareFragment extends Fragment {
             refreshStatus();
             Toast.makeText(requireContext(), "设备状态已检查；未接入的控制通道不会发送命令", Toast.LENGTH_LONG).show();
         });
+        view.findViewById(R.id.tubeCurrentButton).setOnClickListener(v ->
+                showXrayResult(xrayController.enableTubeCurrent()));
+        view.findViewById(R.id.tubeVoltageButton).setOnClickListener(v ->
+                showXrayResult(xrayController.enableTubeVoltage()));
+        view.findViewById(R.id.xrayStopButton).setOnClickListener(v ->
+                showXrayResult(xrayController.stopAll()));
 
         exposureButton.setOnTouchListener((v, event) -> handleExposureTouch(event));
         refreshStatus();
@@ -132,7 +143,9 @@ public class ExposurePrepareFragment extends Fragment {
         }
         if (xray) {
             String caseId = activity.saveExposurePreparation();
-            exposureResultText.setText("X-Ray记录 " + caseId + " 已保存；433 MHz 未接入，射线源命令未发送");
+            Xray433Controller.SendResult result = xrayController.startExposure();
+            exposureResultText.setText(result.message + "\n准备记录：" + caseId);
+            refreshXraySequenceStatus();
         } else {
             exposureResultText.setText("正在启动所选模块…");
         }
@@ -153,6 +166,25 @@ public class ExposurePrepareFragment extends Fragment {
                 + "    距离：" + reading.getDistance()
                 + "\n呼吸：" + reading.getBreathRate()
                 + "    心率：" + reading.getHeartRate());
+        refreshXraySequenceStatus();
+    }
+
+    private void showXrayResult(Xray433Controller.SendResult result) {
+        if (exposureResultText != null) exposureResultText.setText(result.message);
+        refreshXraySequenceStatus();
+        Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show();
+    }
+
+    private void refreshXraySequenceStatus() {
+        if (xrayController == null || xraySequenceStatusText == null) return;
+        Xray433Controller.State state = xrayController.getState();
+        String channels;
+        if (state == Xray433Controller.State.VOLTAGE_ON) channels = "管电流开 · 管电压开";
+        else if (state == Xray433Controller.State.CURRENT_ON) channels = "管电流开 · 管电压关";
+        else if (state == Xray433Controller.State.FAULT) channels = "异常，请检查并停止";
+        else channels = "管电流关 · 管电压关";
+        xraySequenceStatusText.setText((xrayController.isHardwareReady() ? "433 MHz 实机" : "433 MHz 安全演练")
+                + "：" + channels);
     }
 
     private String state(boolean connected) { return connected ? "已连接" : "待连接"; }

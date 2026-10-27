@@ -558,6 +558,34 @@ public class ChatFragment extends Fragment {
         }
 
         // ===== 页面切换类 =====
+        if (t.contains("打开准备曝光") || t.contains("曝光准备页面")
+                || t.contains("打开曝光页面")) {
+            return doDeviceCommand(text, "好的，已打开**准备曝光**页面。", ma::openExposurePreparePage);
+        }
+
+        // X-Ray 射线源：软件层始终先管电流、后管电压；停止时顺序相反。
+        if ((t.contains("停止") || t.contains("关闭") || t.contains("断开"))
+                && (t.contains("曝光") || t.contains("射线源") || t.contains("x光") || t.contains("X光"))) {
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
+                    ma.stopXrayExposureByCommand();
+            addAiBubble(result.message);
+            speakLocalReply(result.message);
+            return true;
+        }
+        if ((t.contains("开始曝光") || t.contains("开启曝光") || t.contains("开启射线源")
+                || t.contains("接通射线源")) && !isQueryLike(t)) {
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
+                    ma.startXrayExposureByCommand();
+            addAiBubble(result.message);
+            speakLocalReply(result.message);
+            return true;
+        }
         if (t.contains("打开摄像头") || t.contains("摄像头页面") || t.contains("拍照页面")
                 || t.contains("实时图像") || t.contains("打开预览")) {
             return doDeviceCommand(text, "好的，已打开**摄像头**页面。", ma::openCameraPageByCommand);
