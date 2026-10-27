@@ -177,7 +177,6 @@ public class ExposurePrepareFragment extends Fragment {
     private void showXrayResult(Xray433Controller.SendResult result) {
         if (exposureResultText != null) exposureResultText.setText(result.message);
         refreshXraySequenceStatus();
-        Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show();
     }
 
     private void refreshXraySequenceStatus() {
