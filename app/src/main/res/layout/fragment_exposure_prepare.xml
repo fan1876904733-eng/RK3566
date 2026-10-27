@@ -204,47 +204,18 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <LinearLayout
+            <Switch
+                android:id="@+id/xrayMasterSwitch"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/masterOnButton"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_btn_new"
-                    android:text="开启总开关"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp" />
-
-                <Space android:layout_width="8dp" android:layout_height="1dp" />
-
-                <Button
-                    android:id="@+id/masterOffButton"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_btn_new"
-                    android:text="关闭总开关"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/xrayReleaseButton"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/bg_exposure_hold"
-                android:text="立即松开管电压 / 停止曝光"
-                android:textAllCaps="false"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_input_box"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:showText="false"
+                android:text="射线源总开关"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -265,7 +236,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center"
-            android:text="先开总开关；按住下方按钮曝光，松开立即停止"
+            android:text="打开总开关后，按住曝光，松手立即停止"
             android:textColor="#9AB6D8"
             android:textSize="11sp" />
 

@@ -11,6 +11,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.Switch;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -35,6 +36,8 @@ public class ExposurePrepareFragment extends Fragment {
     private TextView selectionSummaryText;
     private TextView xraySequenceStatusText;
     private Xray433Controller xrayController;
+    private Switch xrayMasterSwitch;
+    private boolean syncingMasterSwitch;
     private boolean voltagePressed;
 
     private final Runnable refreshTask = new Runnable() {
@@ -64,6 +67,7 @@ public class ExposurePrepareFragment extends Fragment {
         selectionSummaryText = view.findViewById(R.id.selectionSummaryText);
         xraySequenceStatusText = view.findViewById(R.id.xraySequenceStatusText);
         xrayController = Xray433Controller.getInstance(requireContext());
+        xrayMasterSwitch = view.findViewById(R.id.xrayMasterSwitch);
         android.widget.CompoundButton.OnCheckedChangeListener selectionListener =
                 (button, checked) -> updateSelectionText();
         cameraCheck.setOnCheckedChangeListener(selectionListener);
@@ -80,12 +84,10 @@ public class ExposurePrepareFragment extends Fragment {
             refreshStatus();
             Toast.makeText(requireContext(), "设备状态已检查；未接入的控制通道不会发送命令", Toast.LENGTH_LONG).show();
         });
-        view.findViewById(R.id.masterOnButton).setOnClickListener(v ->
-                showXrayResult(xrayController.turnMasterOn()));
-        view.findViewById(R.id.masterOffButton).setOnClickListener(v ->
-                showXrayResult(xrayController.turnMasterOff()));
-        view.findViewById(R.id.xrayReleaseButton).setOnClickListener(v ->
-                showXrayResult(xrayController.releaseTubeVoltage()));
+        xrayMasterSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (syncingMasterSwitch) return;
+            showXrayResult(checked ? xrayController.turnMasterOn() : xrayController.turnMasterOff());
+        });
 
         exposureButton.setOnTouchListener((v, event) -> handleExposureTouch(event));
         refreshStatus();
@@ -188,6 +190,15 @@ public class ExposurePrepareFragment extends Fragment {
         else channels = "总开关关 · 管电压松开";
         xraySequenceStatusText.setText((xrayController.isHardwareReady() ? "433 MHz 实机" : "433 MHz 安全演练")
                 + "：" + channels);
+        if (xrayMasterSwitch != null) {
+            boolean shouldBeOn = state == Xray433Controller.State.MASTER_ON
+                    || state == Xray433Controller.State.EXPOSING;
+            if (xrayMasterSwitch.isChecked() != shouldBeOn) {
+                syncingMasterSwitch = true;
+                xrayMasterSwitch.setChecked(shouldBeOn);
+                syncingMasterSwitch = false;
+            }
+        }
     }
 
     private String state(boolean connected) { return connected ? "已连接" : "待连接"; }
