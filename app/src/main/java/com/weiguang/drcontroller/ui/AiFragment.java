@@ -15,6 +15,7 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
 import com.weiguang.drcontroller.R;
+import com.weiguang.drcontroller.MainActivity;
 import com.weiguang.drcontroller.hardware.ai.AiAnalyzer;
 import com.weiguang.drcontroller.hardware.storage.CaseRepository;
 
@@ -31,8 +32,8 @@ public class AiFragment extends Fragment {
     private final List<CaseRepository.CaseRecord> cases = new ArrayList<>();
     private Spinner caseSpinner;
     private TextView caseSummaryText;
-    private TextView reportText;
     private Button analyzeButton;
+    private Button viewReportButton;
     private String requestedCaseId;
     private boolean analyzing = false;
 
@@ -54,8 +55,8 @@ public class AiFragment extends Fragment {
 
         caseSpinner = view.findViewById(R.id.aiCaseSpinner);
         caseSummaryText = view.findViewById(R.id.aiCaseSummaryText);
-        reportText = view.findViewById(R.id.aiReportText);
         analyzeButton = view.findViewById(R.id.aiAnalyzeButton);
+        viewReportButton = view.findViewById(R.id.aiViewReportButton);
         requestedCaseId = getArguments() == null ? null : getArguments().getString(ARG_CASE_ID);
 
         caseSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -69,6 +70,7 @@ public class AiFragment extends Fragment {
             }
         });
         analyzeButton.setOnClickListener(v -> analyzeSelectedCase());
+        viewReportButton.setOnClickListener(v -> openSelectedReport());
         loadCases();
     }
 
@@ -109,7 +111,7 @@ public class AiFragment extends Fragment {
 
         if (cases.isEmpty()) {
             caseSummaryText.setText("还没有可分析的历史案例，请先完成拍摄。\n历史记录会按时间自动保存案例。 ");
-            reportText.setText("暂无分析报告。 ");
+            viewReportButton.setVisibility(View.GONE);
             return;
         }
 
@@ -145,11 +147,20 @@ public class AiFragment extends Fragment {
                 "\n数据：" + radarState +
                 "\nAI状态：" + (record.hasAiReport() ? "已分析" : "未分析")
         );
-        reportText.setText(record.hasAiReport()
-                ? record.getAiReport()
-                : "该案例尚未进行AI分析。点击“开始AI分析”后，报告会自动保存到历史记录。 ");
         analyzeButton.setText(record.hasAiReport() ? "重新AI分析" : "开始AI分析");
         analyzeButton.setEnabled(true);
+        viewReportButton.setVisibility(record.hasAiReport() ? View.VISIBLE : View.GONE);
+        viewReportButton.setEnabled(record.hasAiReport());
+    }
+
+    private void openSelectedReport() {
+        int position = caseSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= cases.size()) return;
+        CaseRepository.CaseRecord record = cases.get(position);
+        if (!record.hasAiReport()) return;
+        if (getActivity() instanceof MainActivity) {
+            ((MainActivity) getActivity()).openAiReport(record.getCaseId());
+        }
     }
 
     /**
@@ -166,7 +177,7 @@ public class AiFragment extends Fragment {
         analyzing = true;
         analyzeButton.setEnabled(false);
         analyzeButton.setText("分析中...");
-        reportText.setText("正在读取案例影像并调用 AI 多模态模型分析，请稍候...");
+        viewReportButton.setVisibility(View.GONE);
 
         Context appContext = requireContext().getApplicationContext();
         AiAnalyzer.analyzeCase(appContext, record, null, new AiAnalyzer.Callback() {
@@ -174,9 +185,10 @@ public class AiFragment extends Fragment {
             public void onSuccess(String reply) {
                 analyzing = false;
                 if (!isAdded()) return;
-                reportText.setText(reply);
                 analyzeButton.setEnabled(true);
                 analyzeButton.setText("重新AI分析");
+                viewReportButton.setVisibility(View.VISIBLE);
+                viewReportButton.setEnabled(true);
                 Toast.makeText(requireContext(), "分析报告已生成并保存到历史记录", Toast.LENGTH_LONG).show();
                 loadCases();
             }
@@ -185,9 +197,9 @@ public class AiFragment extends Fragment {
             public void onError(String error) {
                 analyzing = false;
                 if (!isAdded()) return;
-                reportText.setText("AI分析失败：" + error + "\n\n请检查设备网络后重试。");
                 analyzeButton.setEnabled(true);
                 analyzeButton.setText(record.hasAiReport() ? "重新AI分析" : "开始AI分析");
+                viewReportButton.setVisibility(record.hasAiReport() ? View.VISIBLE : View.GONE);
                 Toast.makeText(requireContext(), "AI分析失败", Toast.LENGTH_SHORT).show();
             }
         });

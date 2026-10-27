@@ -40,6 +40,7 @@ import com.weiguang.drcontroller.hardware.usb.HlkLd6002RadarAdapter;
 import com.weiguang.drcontroller.hardware.usb.UsbDeviceMatcher;
 import com.weiguang.drcontroller.hardware.usb.UsbRadarAdapter;
 import com.weiguang.drcontroller.ui.AiFragment;
+import com.weiguang.drcontroller.ui.AiReportFragment;
 import com.weiguang.drcontroller.ui.HistoryFragment;
 import com.weiguang.drcontroller.ui.HomeFragment;
 import com.weiguang.drcontroller.ui.PreviewFragment;
@@ -780,6 +781,16 @@ public class MainActivity extends AppCompatActivity {
                 aiButton,
                 "AI分析",
                 "选择历史案例进行AI辅助分析并保存报告",
+                RadarPanelMode.HIDDEN
+        );
+    }
+
+    public void openAiReport(String caseId) {
+        openPage(
+                AiReportFragment.newInstance(caseId),
+                aiButton,
+                "AI分析报告",
+                "查看所选历史案例的完整AI分析结果",
                 RadarPanelMode.HIDDEN
         );
     }

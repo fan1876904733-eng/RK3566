@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101D27"
+    android:orientation="vertical"
+    android:padding="18dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/aiReportBackButton"
+            android:layout_width="96dp"
+            android:layout_height="42dp"
+            android:backgroundTint="#263844"
+            android:minHeight="0dp"
+            android:text="返回分析"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="14dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AI分析报告"
+                android:textColor="#FFFFFF"
+                android:textSize="21sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/aiReportCaseName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="历史案例"
+                android:textColor="#91A7B6"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="14dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_card_tech"
+        android:fillViewport="true"
+        android:padding="18dp">
+
+        <TextView
+            android:id="@+id/aiReportContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="5dp"
+            android:text="正在读取报告…"
+            android:textColor="#D8E5EC"
+            android:textIsSelectable="true"
+            android:textSize="15sp" />
+    </ScrollView>
+</LinearLayout>

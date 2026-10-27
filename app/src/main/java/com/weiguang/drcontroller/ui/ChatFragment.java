@@ -41,6 +41,7 @@ import androidx.fragment.app.Fragment;
 import com.weiguang.drcontroller.BuildConfig;
 import com.weiguang.drcontroller.MainActivity;
 import com.weiguang.drcontroller.R;
+import com.weiguang.drcontroller.hardware.ai.AiAnalyzer;
 import com.weiguang.drcontroller.hardware.storage.CaseRepository;
 
 import org.json.JSONArray;
@@ -91,6 +92,9 @@ public class ChatFragment extends Fragment {
     private OkHttpClient speechClient;
     private Handler mainHandler;
     private final JSONArray messages = createInitialMessages();
+    private String pendingAnalysisCaseId;
+    private String pendingDeleteCaseId;
+    private String pendingRenameCaseId;
 
     private static final String API_KEY = BuildConfig.DEEPSEEK_API_KEY;
     private static final String API_URL = "https://api.deepseek.com/v1/chat/completions";
@@ -428,6 +432,48 @@ public class ChatFragment extends Fragment {
         MainActivity ma = (MainActivity) getActivity();
         String t = text.replaceAll("[\\s，。！？,.!?]", "");
 
+        // 历史记录连续对话：确认分析/删除，或在下一句话提供新名称。
+        if (pendingAnalysisCaseId != null && isAffirmative(t)) {
+            String caseId = pendingAnalysisCaseId;
+            pendingAnalysisCaseId = null;
+            return analyzeAndReadCase(text, caseId);
+        }
+        if (pendingDeleteCaseId != null && isAffirmative(t)) {
+            String caseId = pendingDeleteCaseId;
+            pendingDeleteCaseId = null;
+            return deleteCaseConfirmed(text, caseId);
+        }
+        if ((pendingAnalysisCaseId != null || pendingDeleteCaseId != null) && isNegative(t)) {
+            pendingAnalysisCaseId = null;
+            pendingDeleteCaseId = null;
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            addAiBubble("好的，已取消操作。");
+            speakLocalReply("好的，已取消");
+            return true;
+        }
+        if (pendingRenameCaseId != null && !t.isEmpty()) {
+            String caseId = pendingRenameCaseId;
+            pendingRenameCaseId = null;
+            return renameCaseNow(text, caseId, text.trim());
+        }
+
+        // 删除、重命名和朗读报告必须优先于普通“打开历史记录”。
+        if (t.contains("删除") && (t.contains("历史") || t.contains("记录")
+                || t.contains("案例") || t.contains("第") || t.contains("那条") || t.contains("这条"))) {
+            return requestDeleteCase(text, t);
+        }
+        if ((t.contains("重命名") || t.contains("改名") || t.contains("命名为"))
+                && (t.contains("历史") || t.contains("记录") || t.contains("案例")
+                || t.contains("第") || t.contains("那条") || t.contains("这条"))) {
+            return requestRenameCase(text, t);
+        }
+        if ((t.contains("读取") || t.contains("朗读") || t.contains("念一下") || t.contains("读一下"))
+                && (t.contains("分析") || t.contains("报告"))) {
+            return readCaseReportCommand(text, t);
+        }
+
         // 用户是在询问口令，而不是查询已有报告数量，更不能在未确认时直接开始拍摄。
         if ((t.contains("怎么说") || t.contains("如何说") || t.contains("说什么"))
                 && (t.contains("拍照") || t.contains("拍摄") || t.contains("全检"))
@@ -588,6 +634,201 @@ public class ChatFragment extends Fragment {
                 || t.contains("哪条") || t.contains("几个") || t.contains("有没有")
                 || t.contains("怎么") || t.contains("如何") || t.contains("在哪")
                 || t.contains("哪里") || t.contains("哪儿");
+    }
+
+    private static boolean isAffirmative(String t) {
+        return t.equals("需要") || t.equals("要") || t.equals("是") || t.equals("确认")
+                || t.contains("需要分析") || t.contains("开始分析") || t.contains("帮我分析")
+                || t.contains("可以") || t.contains("好的");
+    }
+
+    private static boolean isNegative(String t) {
+        return t.contains("不需要") || t.contains("不要") || t.contains("取消") || t.contains("算了");
+    }
+
+    private boolean readCaseReportCommand(String userText, String t) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        final int target = parseOrdinal(t);
+        new Thread(() -> {
+            List<CaseRepository.CaseRecord> records =
+                    CaseRepository.queryCases(requireContext().getApplicationContext(), 0);
+            int index = target <= 0 ? -1 : target - 1;
+            if (index < 0 || index >= records.size()) {
+                mainHandler.post(() -> {
+                    String reply = target > 0 ? "没有找到第 " + target + " 条历史记录。"
+                            : "请告诉我要读取第几条历史记录的AI分析报告。";
+                    addAiBubble(reply);
+                    speakLocalReply(reply);
+                });
+                return;
+            }
+            CaseRepository.CaseRecord record = records.get(index);
+            mainHandler.post(() -> {
+                if (record.hasAiReport()) {
+                    addAiBubble("正在读取第 " + (index + 1) + " 条历史记录的AI分析报告。\n\n" + record.getAiReport());
+                    if (getActivity() instanceof MainActivity) {
+                        ((MainActivity) getActivity()).openAiReport(record.getCaseId());
+                    }
+                    CaseRepository.markAiReportRead(requireContext(), record.getCaseId());
+                    speakReportText(record.getAiReport());
+                } else {
+                    pendingAnalysisCaseId = record.getCaseId();
+                    String reply = "第 " + (index + 1) + " 条历史记录还没有AI分析报告。需要我现在分析，完成后为你读取吗？";
+                    addAiBubble(reply);
+                    speakLocalReply(reply);
+                }
+            });
+        }, "history-read-report").start();
+        return true;
+    }
+
+    private boolean analyzeAndReadCase(String userText, String caseId) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
+        if (record == null) {
+            addAiBubble("这条历史记录已经不存在了。");
+            speakLocalReply("这条历史记录已经不存在了");
+            return true;
+        }
+        addAiBubble("好的，正在为这条历史记录生成AI分析报告，完成后我会自动读取。");
+        speakLocalReply("好的，正在分析，完成后我会为你读取");
+        AiAnalyzer.analyzeCase(requireContext().getApplicationContext(), record, null,
+                new AiAnalyzer.Callback() {
+                    @Override public void onSuccess(String report) {
+                        mainHandler.post(() -> {
+                            if (!isAdded()) return;
+                            addAiBubble("AI分析已完成：\n\n" + report);
+                            if (getActivity() instanceof MainActivity) {
+                                ((MainActivity) getActivity()).openAiReport(caseId);
+                            }
+                            speakReportText(report);
+                        });
+                    }
+
+                    @Override public void onError(String error) {
+                        mainHandler.post(() -> {
+                            if (!isAdded()) return;
+                            String reply = "AI分析失败：" + error;
+                            addAiBubble(reply);
+                            speakLocalReply(reply);
+                        });
+                    }
+                });
+        return true;
+    }
+
+    private boolean requestDeleteCase(String userText, String t) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        int target = parseOrdinal(t);
+        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
+        if (target <= 0 || target > records.size()) {
+            String reply = "请明确告诉我要删除第几条历史记录。";
+            addAiBubble(reply);
+            speakLocalReply(reply);
+            return true;
+        }
+        CaseRepository.CaseRecord record = records.get(target - 1);
+        pendingDeleteCaseId = record.getCaseId();
+        String reply = "删除后无法恢复。确认删除第 " + target + " 条历史记录吗？请回答确认或取消。";
+        addAiBubble(reply);
+        speakLocalReply(reply);
+        return true;
+    }
+
+    private boolean deleteCaseConfirmed(String userText, String caseId) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
+        if (record == null) {
+            addAiBubble("这条历史记录已经不存在了。");
+            return true;
+        }
+        CaseRepository.deleteCase(requireContext(), record, new CaseRepository.DeleteCallback() {
+            @Override public void onDeleted() {
+                addAiBubble("历史记录已删除。");
+                speakLocalReply("历史记录已删除");
+            }
+            @Override public void onError(String message) {
+                addAiBubble(message);
+                speakLocalReply(message);
+            }
+        });
+        return true;
+    }
+
+    private boolean requestRenameCase(String userText, String t) {
+        int target = parseOrdinal(t);
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
+        if (target <= 0 || target > records.size()) {
+            String reply = "请明确告诉我要修改第几条历史记录的名称。";
+            addAiBubble(reply);
+            speakLocalReply(reply);
+            return true;
+        }
+        String newName = extractNewCaseName(userText);
+        String caseId = records.get(target - 1).getCaseId();
+        if (newName.isEmpty()) {
+            pendingRenameCaseId = caseId;
+            addAiBubble("请告诉我新的名称。你可以直接说，例如：左手腕检测。 ");
+            speakLocalReply("请告诉我新的名称");
+            return true;
+        }
+        return renameCaseNow(null, caseId, newName);
+    }
+
+    private boolean renameCaseNow(String userText, String caseId, String newName) {
+        if (userText != null) {
+            addUserBubble(userText);
+            hideWelcome();
+            input.setText("");
+        }
+        String clean = newName == null ? "" : newName.trim();
+        if (clean.length() > 20) clean = clean.substring(0, 20);
+        CaseRepository.setCaseName(requireContext(), caseId, clean);
+        String reply = "已将这条历史记录重命名为“" + clean + "”。";
+        addAiBubble(reply);
+        speakLocalReply(reply);
+        return true;
+    }
+
+    private static String extractNewCaseName(String text) {
+        if (text == null) return "";
+        Matcher matcher = Pattern.compile("(?:重命名为|改名为|命名为|改成|叫做|叫)([^，。！？,.!?]+)").matcher(text);
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private void speakReportText(String report) {
+        if (report == null || report.trim().isEmpty()) return;
+        String plain = stripEmoji(report).replaceAll("[*#`]+", "")
+                .replaceAll("\\s+", " ").trim();
+        if (plain.length() > 1800) plain = plain.substring(0, 1800) + "。其余内容请在报告页面查看";
+        List<String> chunks = new java.util.ArrayList<>();
+        while (!plain.isEmpty()) {
+            int end = Math.min(180, plain.length());
+            if (end < plain.length()) {
+                int split = Math.max(plain.lastIndexOf('。', end), plain.lastIndexOf('；', end));
+                if (split > 60) end = split + 1;
+            }
+            chunks.add(plain.substring(0, end));
+            plain = plain.substring(end).trim();
+        }
+        if (wakeEnabled) wakeState = WSTATE_WAIT_TTS;
+        for (int i = 0; i < chunks.size(); i++) {
+            boolean last = i == chunks.size() - 1;
+            speakText(chunks.get(i), last ? () -> {
+                if (wakeEnabled) wakeState = WSTATE_LISTEN;
+            } : null);
+        }
     }
 
     /** 本地统计历史/AI分析数量并直接回答，避免误触发"打开历史记录"页面 */

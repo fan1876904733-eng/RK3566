@@ -61,48 +61,41 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/aiAnalyzeButton"
-            android:layout_width="190dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="18dp"
-            android:backgroundTint="#1976D2"
-            android:enabled="false"
-            android:minHeight="0dp"
-            android:text="开始AI分析"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp" />
-
         <LinearLayout
+            android:id="@+id/aiActionRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
             android:layout_marginBottom="18dp"
-            android:background="@drawable/bg_card_tech"
-            android:orientation="vertical"
-            android:padding="14dp">
+            android:gravity="center"
+            android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="分析报告"
+            <Button
+                android:id="@+id/aiAnalyzeButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:backgroundTint="#1976D2"
+                android:enabled="false"
+                android:minHeight="0dp"
+                android:text="开始AI分析"
+                android:textAllCaps="false"
                 android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/aiReportText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:lineSpacingExtra="4dp"
-                android:minHeight="180dp"
-                android:text="选择案例后开始分析。"
-                android:textColor="#C5D6E0"
-                android:textIsSelectable="true"
                 android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/aiViewReportButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:backgroundTint="#1976D2"
+                android:minHeight="0dp"
+                android:text="查看报告"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
