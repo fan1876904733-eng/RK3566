@@ -957,15 +957,15 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult startXrayExposureByCommand() {
+    public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult startXrayExposureByCommand(int seconds) {
         saveExposurePreparation();
         return com.weiguang.drcontroller.hardware.xray.Xray433Controller
-                .getInstance(this).startExposure();
+                .getInstance(this).startTimedExposure(seconds);
     }
 
     public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult stopXrayExposureByCommand() {
         return com.weiguang.drcontroller.hardware.xray.Xray433Controller
-                .getInstance(this).stopAll();
+                .getInstance(this).turnMasterOff();
     }
 
     /**

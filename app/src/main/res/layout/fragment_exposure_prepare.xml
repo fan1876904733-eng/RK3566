@@ -199,7 +199,7 @@
                 android:background="@drawable/bg_input_box"
                 android:gravity="center"
                 android:padding="10dp"
-                android:text="433 MHz 安全演练：管电流关 · 管电压关"
+                android:text="433 MHz 安全演练：总开关关 · 管电压松开"
                 android:textColor="#FFD36A"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -211,12 +211,12 @@
                 android:orientation="horizontal">
 
                 <Button
-                    android:id="@+id/tubeCurrentButton"
+                    android:id="@+id/masterOnButton"
                     android:layout_width="0dp"
                     android:layout_height="44dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_btn_new"
-                    android:text="1. 接通管电流"
+                    android:text="开启总开关"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFF"
                     android:textSize="12sp" />
@@ -224,24 +224,24 @@
                 <Space android:layout_width="8dp" android:layout_height="1dp" />
 
                 <Button
-                    android:id="@+id/tubeVoltageButton"
+                    android:id="@+id/masterOffButton"
                     android:layout_width="0dp"
                     android:layout_height="44dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_btn_new"
-                    android:text="2. 接通管电压"
+                    android:text="关闭总开关"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFF"
                     android:textSize="12sp" />
             </LinearLayout>
 
             <Button
-                android:id="@+id/xrayStopButton"
+                android:id="@+id/xrayReleaseButton"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/bg_exposure_hold"
-                android:text="停止射线源（先断管电压，后断管电流）"
+                android:text="立即松开管电压 / 停止曝光"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
@@ -265,7 +265,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:gravity="center"
-            android:text="选择模块后，长按按钮自动执行"
+            android:text="先开总开关；按住下方按钮曝光，松开立即停止"
             android:textColor="#9AB6D8"
             android:textSize="11sp" />
 
@@ -275,7 +275,7 @@
             android:layout_height="64dp"
             android:layout_marginTop="5dp"
             android:background="@drawable/bg_exposure_hold"
-            android:text="长按 2 秒开启 X-Ray 射线源"
+            android:text="按住曝光 · 松开停止"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
@@ -287,7 +287,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="7dp"
             android:gravity="center"
-            android:text="● 433 MHz 控制模块待接入 · 短按不会触发"
+            android:text="● 433 MHz 控制模块待接入 · 当前为安全演练"
             android:textColor="#FFD36A"
             android:textSize="11sp" />
     </LinearLayout>

@@ -563,7 +563,7 @@ public class ChatFragment extends Fragment {
             return doDeviceCommand(text, "好的，已打开**准备曝光**页面。", ma::openExposurePreparePage);
         }
 
-        // X-Ray 射线源：软件层始终先管电流、后管电压；停止时顺序相反。
+        // X-Ray 射线源：总开关建立管电流，管电压为定时点动，到时必须自动松开。
         if ((t.contains("停止") || t.contains("关闭") || t.contains("断开"))
                 && (t.contains("曝光") || t.contains("射线源") || t.contains("x光") || t.contains("X光"))) {
             addUserBubble(text);
@@ -580,8 +580,15 @@ public class ChatFragment extends Fragment {
             addUserBubble(text);
             hideWelcome();
             input.setText("");
+            int seconds = parseExposureSeconds(t);
+            if (seconds < 1) {
+                String reply = "请说明曝光时长，例如：小农小农，曝光3秒。为了安全，没有时长我不会启动管电压。";
+                addAiBubble(reply);
+                speakLocalReply(reply);
+                return true;
+            }
             com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
-                    ma.startXrayExposureByCommand();
+                    ma.startXrayExposureByCommand(seconds);
             addAiBubble(result.message);
             speakLocalReply(result.message);
             return true;
@@ -693,6 +700,17 @@ public class ChatFragment extends Fragment {
                 || t.contains("哪条") || t.contains("几个") || t.contains("有没有")
                 || t.contains("怎么") || t.contains("如何") || t.contains("在哪")
                 || t.contains("哪里") || t.contains("哪儿");
+    }
+
+    private static int parseExposureSeconds(String text) {
+        Matcher numeric = Pattern.compile("(10|[1-9])秒").matcher(text);
+        if (numeric.find()) return Integer.parseInt(numeric.group(1));
+        String[] words = {"一", "二", "两", "三", "四", "五", "六", "七", "八", "九", "十"};
+        int[] values = {1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+        for (int i = 0; i < words.length; i++) {
+            if (text.contains(words[i] + "秒")) return values[i];
+        }
+        return -1;
     }
 
     private static boolean isAffirmative(String t) {

@@ -24,7 +24,6 @@ import com.weiguang.drcontroller.hardware.xray.Xray433Controller;
 /** 简化的曝光准备台。实际 433 MHz 控制接入前，只保存准备数据，不发送曝光命令。 */
 public class ExposurePrepareFragment extends Fragment {
 
-    private static final long HOLD_DURATION_MS = 2000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView deviceStatusText;
     private TextView radarStatusText;
@@ -36,18 +35,13 @@ public class ExposurePrepareFragment extends Fragment {
     private TextView selectionSummaryText;
     private TextView xraySequenceStatusText;
     private Xray433Controller xrayController;
-    private boolean holdCompleted;
+    private boolean voltagePressed;
 
     private final Runnable refreshTask = new Runnable() {
         @Override public void run() {
             refreshStatus();
             handler.postDelayed(this, 1000L);
         }
-    };
-
-    private final Runnable holdTask = () -> {
-        holdCompleted = true;
-        if (exposureButton != null) exposureButton.setText("松开执行");
     };
 
     @Nullable
@@ -86,12 +80,12 @@ public class ExposurePrepareFragment extends Fragment {
             refreshStatus();
             Toast.makeText(requireContext(), "设备状态已检查；未接入的控制通道不会发送命令", Toast.LENGTH_LONG).show();
         });
-        view.findViewById(R.id.tubeCurrentButton).setOnClickListener(v ->
-                showXrayResult(xrayController.enableTubeCurrent()));
-        view.findViewById(R.id.tubeVoltageButton).setOnClickListener(v ->
-                showXrayResult(xrayController.enableTubeVoltage()));
-        view.findViewById(R.id.xrayStopButton).setOnClickListener(v ->
-                showXrayResult(xrayController.stopAll()));
+        view.findViewById(R.id.masterOnButton).setOnClickListener(v ->
+                showXrayResult(xrayController.turnMasterOn()));
+        view.findViewById(R.id.masterOffButton).setOnClickListener(v ->
+                showXrayResult(xrayController.turnMasterOff()));
+        view.findViewById(R.id.xrayReleaseButton).setOnClickListener(v ->
+                showXrayResult(xrayController.releaseTubeVoltage()));
 
         exposureButton.setOnTouchListener((v, event) -> handleExposureTouch(event));
         refreshStatus();
@@ -112,26 +106,29 @@ public class ExposurePrepareFragment extends Fragment {
 
     private boolean handleExposureTouch(MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
-            holdCompleted = false;
-            exposureButton.setText("继续按住 2 秒…");
-            handler.postDelayed(holdTask, HOLD_DURATION_MS);
+            boolean xray = xrayCheck != null && xrayCheck.isChecked();
+            if (xray) {
+                Xray433Controller.SendResult result = xrayController.pressTubeVoltage();
+                voltagePressed = result.success;
+                showXrayResult(result);
+                if (voltagePressed) exposureButton.setText("正在曝光 · 松开停止");
+            }
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_UP) {
-            handler.removeCallbacks(holdTask);
             exposureButton.performClick();
-            if (holdCompleted) savePreparation();
-            else resetExposureButton();
+            finishMomentaryCapture();
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_CANCEL) {
-            cancelHold();
+            releaseVoltageOnly();
+            resetExposureButton();
             return true;
         }
         return true;
     }
 
-    private void savePreparation() {
+    private void finishMomentaryCapture() {
         MainActivity activity = activity();
         if (activity == null) return;
         boolean camera = cameraCheck != null && cameraCheck.isChecked();
@@ -142,8 +139,14 @@ public class ExposurePrepareFragment extends Fragment {
             return;
         }
         if (xray) {
+            if (!voltagePressed) {
+                exposureResultText.setText("未开始曝光：请先开启总开关，再按住曝光按钮");
+                resetExposureButton();
+                return;
+            }
             String caseId = activity.saveExposurePreparation();
-            Xray433Controller.SendResult result = xrayController.startExposure();
+            Xray433Controller.SendResult result = xrayController.releaseTubeVoltage();
+            voltagePressed = false;
             exposureResultText.setText(result.message + "\n准备记录：" + caseId);
             refreshXraySequenceStatus();
         } else {
@@ -179,10 +182,10 @@ public class ExposurePrepareFragment extends Fragment {
         if (xrayController == null || xraySequenceStatusText == null) return;
         Xray433Controller.State state = xrayController.getState();
         String channels;
-        if (state == Xray433Controller.State.VOLTAGE_ON) channels = "管电流开 · 管电压开";
-        else if (state == Xray433Controller.State.CURRENT_ON) channels = "管电流开 · 管电压关";
+        if (state == Xray433Controller.State.EXPOSING) channels = "总开关开 · 管电流已建立 · 管电压按下";
+        else if (state == Xray433Controller.State.MASTER_ON) channels = "总开关开 · 管电流已建立 · 管电压松开";
         else if (state == Xray433Controller.State.FAULT) channels = "异常，请检查并停止";
-        else channels = "管电流关 · 管电压关";
+        else channels = "总开关关 · 管电压松开";
         xraySequenceStatusText.setText((xrayController.isHardwareReady() ? "433 MHz 实机" : "433 MHz 安全演练")
                 + "：" + channels);
     }
@@ -204,12 +207,16 @@ public class ExposurePrepareFragment extends Fragment {
     }
 
     private void cancelHold() {
-        handler.removeCallbacks(holdTask);
+        releaseVoltageOnly();
         resetExposureButton();
     }
 
+    private void releaseVoltageOnly() {
+        if (voltagePressed && xrayController != null) xrayController.releaseTubeVoltage();
+        voltagePressed = false;
+    }
+
     private void resetExposureButton() {
-        holdCompleted = false;
         updateSelectionText();
     }
 
@@ -221,15 +228,13 @@ public class ExposurePrepareFragment extends Fragment {
         StringBuilder modules = new StringBuilder();
         if (camera) modules.append("可见光拍照");
         if (thermal) appendModule(modules, "热成像拍照");
-        if (xray) appendModule(modules, "开启 X-Ray 射线源");
+        if (xray) appendModule(modules, "按住管电压曝光");
         String action = modules.length() == 0 ? "尚未选择采集模块" : modules.toString();
         if (selectionSummaryText != null) selectionSummaryText.setText("本次操作：" + action);
         if (exposureButton != null) {
             exposureButton.setEnabled(modules.length() > 0);
-            if (!camera && !thermal && xray) exposureButton.setText("长按 2 秒开启 X-Ray 射线源");
-            else if (camera && !thermal && !xray) exposureButton.setText("长按 2 秒拍摄可见光");
-            else if (!camera && thermal && !xray) exposureButton.setText("长按 2 秒拍摄热成像");
-            else exposureButton.setText("长按 2 秒开始组合采集");
+            if (xray) exposureButton.setText("按住曝光 · 松开停止");
+            else exposureButton.setText("按下完成所选拍摄");
         }
     }
 

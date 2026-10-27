@@ -1,6 +1,8 @@
 package com.weiguang.drcontroller.hardware.xray;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 /**
  * X-Ray 433 MHz 双通道安全控制器。
@@ -10,8 +12,8 @@ import android.content.Context;
  * 会完整校验顺序，但不对外发射任何无线命令。</p>
  */
 public final class Xray433Controller {
-    public enum State { IDLE, CURRENT_ON, VOLTAGE_ON, FAULT }
-    public enum Channel { TUBE_CURRENT, TUBE_VOLTAGE }
+    public enum State { MASTER_OFF, MASTER_ON, EXPOSING, FAULT }
+    public enum Channel { MASTER_POWER, TUBE_VOLTAGE_MOMENTARY }
 
     public interface Transport {
         boolean isHardwareReady();
@@ -32,7 +34,9 @@ public final class Xray433Controller {
 
     private static volatile Xray433Controller instance;
     private final Transport transport;
-    private State state = State.IDLE;
+    private final Handler safetyHandler = new Handler(Looper.getMainLooper());
+    private final Runnable timedRelease = this::releaseTubeVoltage;
+    private State state = State.MASTER_OFF;
     private String lastMessage = "433 MHz 硬件待接入，当前为安全演练模式";
 
     private Xray433Controller(Context context) {
@@ -52,57 +56,64 @@ public final class Xray433Controller {
     public synchronized String getLastMessage() { return lastMessage; }
     public boolean isHardwareReady() { return transport.isHardwareReady(); }
 
-    /** 第一步：只允许先接通管电流通道。 */
-    public synchronized SendResult enableTubeCurrent() {
-        if (state == State.CURRENT_ON || state == State.VOLTAGE_ON) {
-            return result(true, "管电流已接通");
+    /** 保持型总开关：开启后，射线源本机自动建立管电流。 */
+    public synchronized SendResult turnMasterOn() {
+        if (state == State.MASTER_ON || state == State.EXPOSING) {
+            return result(true, "总开关已接通，管电流由设备自动建立");
         }
-        SendResult sent = transport.send(Channel.TUBE_CURRENT, true);
-        if (!sent.success) return fault("管电流接通失败：" + sent.message);
-        state = State.CURRENT_ON;
-        return result(true, sent.simulated ? "演练：管电流已接通" : "管电流已接通");
+        SendResult sent = transport.send(Channel.MASTER_POWER, true);
+        if (!sent.success) return fault("总开关接通失败：" + sent.message);
+        state = State.MASTER_ON;
+        return result(true, sent.simulated ? "演练：总开关已开，管电流自动建立" : "总开关已开，管电流已自动建立");
     }
 
-    /** 第二步：只有管电流已成功时才允许接通管电压。 */
-    public synchronized SendResult enableTubeVoltage() {
-        if (state == State.VOLTAGE_ON) return result(true, "管电压已接通");
-        if (state != State.CURRENT_ON) {
-            return result(false, "已拦截：必须先成功接通管电流，才能接通管电压");
+    /** 按下点动管电压：只允许在总开关已开时执行。 */
+    public synchronized SendResult pressTubeVoltage() {
+        if (state == State.EXPOSING) return result(true, "管电压点动已按下，正在曝光");
+        if (state != State.MASTER_ON) {
+            return result(false, "已拦截：请先开启总开关，等待管电流建立后再按住管电压");
         }
-        SendResult sent = transport.send(Channel.TUBE_VOLTAGE, true);
-        if (!sent.success) {
-            transport.send(Channel.TUBE_CURRENT, false);
-            state = State.FAULT;
-            return fault("管电压接通失败，已尝试断开管电流：" + sent.message);
-        }
-        state = State.VOLTAGE_ON;
-        return result(true, sent.simulated ? "演练：管电压已接通" : "管电压已接通");
+        SendResult sent = transport.send(Channel.TUBE_VOLTAGE_MOMENTARY, true);
+        if (!sent.success) return fault("管电压点动按下失败：" + sent.message);
+        state = State.EXPOSING;
+        return result(true, sent.simulated ? "演练：管电压已按下" : "管电压已按下，正在曝光");
     }
 
-    /** 一键流程：严格执行“管电流 -> 管电压”。 */
-    public synchronized SendResult startExposure() {
-        SendResult current = enableTubeCurrent();
-        if (!current.success) return current;
-        SendResult voltage = enableTubeVoltage();
-        if (!voltage.success) return voltage;
-        return result(true, transport.isHardwareReady()
-                ? "已按顺序接通管电流和管电压，射线源已开启"
-                : "演练完成：已按顺序执行管电流、管电压；未发射 433 MHz 命令");
+    /** 松开点动管电压：立即结束曝光，总开关保持开启。 */
+    public synchronized SendResult releaseTubeVoltage() {
+        safetyHandler.removeCallbacks(timedRelease);
+        if (state != State.EXPOSING) return result(true, "管电压已松开");
+        SendResult sent = transport.send(Channel.TUBE_VOLTAGE_MOMENTARY, false);
+        if (!sent.success) return fault("管电压松开命令失败，请立即手动断电");
+        state = State.MASTER_ON;
+        return result(true, sent.simulated ? "演练：管电压已松开，曝光结束" : "管电压已松开，曝光结束");
     }
 
-    /** 停止时反向断开：先管电压，后管电流。 */
-    public synchronized SendResult stopAll() {
-        boolean ok = true;
-        if (state == State.VOLTAGE_ON || state == State.FAULT) {
-            ok = transport.send(Channel.TUBE_VOLTAGE, false).success;
+    /** 语音远程模式：点动指定时长并由独立安全计时器自动松开。 */
+    public synchronized SendResult startTimedExposure(int seconds) {
+        if (seconds < 1 || seconds > 10) return result(false, "曝光时长必须在 1 到 10 秒之间");
+        SendResult master = turnMasterOn();
+        if (!master.success) return master;
+        SendResult press = pressTubeVoltage();
+        if (!press.success) return press;
+        safetyHandler.removeCallbacks(timedRelease);
+        safetyHandler.postDelayed(timedRelease, seconds * 1000L);
+        return result(true, (transport.isHardwareReady() ? "" : "演练：") + "已开启 " + seconds + " 秒定时曝光，到时自动松开管电压");
+    }
+
+    /** 关闭总开关前始终先松开管电压。 */
+    public synchronized SendResult turnMasterOff() {
+        safetyHandler.removeCallbacks(timedRelease);
+        if (state == State.EXPOSING) {
+            SendResult release = releaseTubeVoltage();
+            if (!release.success) return release;
         }
-        if (state != State.IDLE) {
-            ok = transport.send(Channel.TUBE_CURRENT, false).success && ok;
-        }
-        state = ok ? State.IDLE : State.FAULT;
-        return result(ok, ok
-                ? (transport.isHardwareReady() ? "已先断开管电压，再断开管电流" : "演练：已按安全顺序停止")
-                : "停止命令未全部成功，请立即检查设备");
+        if (state == State.MASTER_OFF) return result(true, "总开关已关闭");
+        SendResult sent = transport.send(Channel.MASTER_POWER, false);
+        state = sent.success ? State.MASTER_OFF : State.FAULT;
+        return result(sent.success, sent.success
+                ? (sent.simulated ? "演练：总开关已关闭" : "总开关已关闭")
+                : "总开关关闭命令失败，请立即手动断电");
     }
 
     private SendResult fault(String message) {
