@@ -18,13 +18,12 @@
             android:layout_height="wrap_content"
             android:background="@drawable/bg_card_tech"
             android:orientation="vertical"
-            android:padding="12dp"
-            android:visibility="gone">
+            android:padding="16dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="曝光设备控制"
+                android:text="选择采集模块"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -33,182 +32,46 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/cameraControlButton"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="0dp"
-                    android:layout_height="58dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_card_tech_clickable"
-                    android:text="摄像头\n检查预览"
-                    android:textAllCaps="false"
-                    android:textColor="#DCEBFA"
-                    android:textSize="12sp" />
-
-                <Space android:layout_width="6dp" android:layout_height="1dp" />
-
-                <Button
-                    android:id="@+id/thermalControlButton"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="0dp"
-                    android:layout_height="58dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_card_tech_clickable"
-                    android:text="热成像\n检查预览"
-                    android:textAllCaps="false"
-                    android:textColor="#DCEBFA"
-                    android:textSize="12sp" />
-
-                <Space android:layout_width="6dp" android:layout_height="1dp" />
-
-                <Button
-                    android:id="@+id/xrayControlButton"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="0dp"
-                    android:layout_height="58dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_card_tech_clickable"
-                    android:text="X-Ray\n接口待接入"
-                    android:textAllCaps="false"
-                    android:textColor="#FFD36A"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/enableAllButton"
-                android:layout_width="match_parent"
-                android:layout_height="42dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/bg_btn_new"
-                android:text="一键检查三路设备"
-                android:textAllCaps="false"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/deviceStatusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="正在读取设备状态…"
-                android:textColor="#9AB6D8"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/bg_card_tech"
-            android:orientation="vertical"
-            android:padding="12dp"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="曝光前确认"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/cameraPreviewEntry"
-                    android:layout_width="0dp"
-                    android:layout_height="72dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_card_tech_clickable"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="摄像头画面\n点击查看"
-                    android:textColor="#C8D8E8"
-                    android:textSize="12sp" />
-
-                <Space android:layout_width="8dp" android:layout_height="1dp" />
-
-                <TextView
-                    android:id="@+id/thermalPreviewEntry"
-                    android:layout_width="0dp"
-                    android:layout_height="72dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_card_tech_clickable"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="热成像画面\n点击查看"
-                    android:textColor="#C8D8E8"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/radarStatusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/bg_input_box"
-                android:padding="10dp"
-                android:text="毫米波雷达：正在读取…"
-                android:textColor="#DCEBFA"
-                android:textSize="12sp"
-                android:lineSpacingExtra="3dp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_card_tech"
-            android:orientation="vertical"
-            android:padding="14dp">
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="选择本次采集模块" android:textColor="#FFFFFF"
-                android:textSize="15sp" android:textStyle="bold" />
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="8dp" android:gravity="center" android:orientation="horizontal">
-                <CheckBox android:id="@+id/selectCameraCheck" android:layout_width="0dp"
-                    android:layout_height="wrap_content" android:layout_weight="1"
-                    android:buttonTint="#00D8FF" android:text="可见光"
-                    android:textColor="#DCEBFA" android:textSize="13sp" />
-                <CheckBox android:id="@+id/selectThermalCheck" android:layout_width="0dp"
-                    android:layout_height="wrap_content" android:layout_weight="1"
-                    android:buttonTint="#00D8FF" android:text="热成像"
-                    android:textColor="#DCEBFA" android:textSize="13sp" />
-                <CheckBox android:id="@+id/selectXrayCheck" android:layout_width="0dp"
-                    android:layout_height="wrap_content" android:layout_weight="1"
-                    android:buttonTint="#00D8FF" android:checked="true" android:text="X-Ray"
-                    android:textColor="#DCEBFA" android:textSize="13sp" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/xraySequenceStatusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/bg_input_box"
                 android:gravity="center"
-                android:padding="10dp"
-                android:text="433 MHz 安全演练：总开关关 · 管电压松开"
-                android:textColor="#FFD36A"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/selectCameraCheck"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:buttonTint="#00D8FF"
+                    android:text="可见光"
+                    android:textColor="#DCEBFA"
+                    android:textSize="14sp" />
+
+                <CheckBox
+                    android:id="@+id/selectThermalCheck"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:buttonTint="#00D8FF"
+                    android:text="热成像"
+                    android:textColor="#DCEBFA"
+                    android:textSize="14sp" />
+
+                <CheckBox
+                    android:id="@+id/selectXrayCheck"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:buttonTint="#00D8FF"
+                    android:checked="true"
+                    android:text="X-Ray"
+                    android:textColor="#DCEBFA"
+                    android:textSize="14sp" />
+            </LinearLayout>
 
             <Switch
                 android:id="@+id/xrayMasterSwitch"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="10dp"
+                android:layout_height="56dp"
+                android:layout_marginTop="12dp"
                 android:background="@drawable/bg_input_box"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
@@ -217,36 +80,15 @@
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/selectionSummaryText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center"
-                android:text="本次操作：开启 X-Ray 射线源"
-                android:textColor="#00D8FF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/exposureHintText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center"
-            android:text="打开总开关后，按住曝光，松手立即停止"
-            android:textColor="#9AB6D8"
-            android:textSize="11sp" />
 
         <Button
             android:id="@+id/exposureButton"
             android:layout_width="match_parent"
             android:layout_height="64dp"
-            android:layout_marginTop="5dp"
+            android:layout_marginTop="10dp"
             android:background="@drawable/bg_exposure_hold"
-            android:text="按住曝光 · 松开停止"
+            android:text="长按曝光"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
@@ -256,10 +98,10 @@
             android:id="@+id/exposureResultText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="7dp"
+            android:layout_marginTop="8dp"
             android:gravity="center"
-            android:text="● 433 MHz 控制模块待接入 · 当前为安全演练"
+            android:text=""
             android:textColor="#FFD36A"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>

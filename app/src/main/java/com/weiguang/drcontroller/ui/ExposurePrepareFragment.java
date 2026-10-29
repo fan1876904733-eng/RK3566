@@ -1,8 +1,6 @@
 package com.weiguang.drcontroller.ui;
 
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -10,7 +8,6 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.TextView;
-import android.widget.Toast;
 import android.widget.Switch;
 
 import androidx.annotation.NonNull;
@@ -19,33 +16,20 @@ import androidx.fragment.app.Fragment;
 
 import com.weiguang.drcontroller.MainActivity;
 import com.weiguang.drcontroller.R;
-import com.weiguang.drcontroller.hardware.radar.RadarReading;
 import com.weiguang.drcontroller.hardware.xray.Xray433Controller;
 
 /** 简化的曝光准备台。通过 K11C GPIO3_D2/D3 控制 TXS01 双通道发射模块。 */
 public class ExposurePrepareFragment extends Fragment {
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView deviceStatusText;
-    private TextView radarStatusText;
     private TextView exposureResultText;
     private Button exposureButton;
     private CheckBox cameraCheck;
     private CheckBox thermalCheck;
     private CheckBox xrayCheck;
-    private TextView selectionSummaryText;
-    private TextView xraySequenceStatusText;
     private Xray433Controller xrayController;
     private Switch xrayMasterSwitch;
     private boolean syncingMasterSwitch;
     private boolean voltagePressed;
-
-    private final Runnable refreshTask = new Runnable() {
-        @Override public void run() {
-            refreshStatus();
-            handler.postDelayed(this, 1000L);
-        }
-    };
 
     @Nullable
     @Override
@@ -57,53 +41,35 @@ public class ExposurePrepareFragment extends Fragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        deviceStatusText = view.findViewById(R.id.deviceStatusText);
-        radarStatusText = view.findViewById(R.id.radarStatusText);
         exposureResultText = view.findViewById(R.id.exposureResultText);
         exposureButton = view.findViewById(R.id.exposureButton);
         cameraCheck = view.findViewById(R.id.selectCameraCheck);
         thermalCheck = view.findViewById(R.id.selectThermalCheck);
         xrayCheck = view.findViewById(R.id.selectXrayCheck);
-        selectionSummaryText = view.findViewById(R.id.selectionSummaryText);
-        xraySequenceStatusText = view.findViewById(R.id.xraySequenceStatusText);
         xrayController = Xray433Controller.getInstance(requireContext());
         xrayMasterSwitch = view.findViewById(R.id.xrayMasterSwitch);
-        android.widget.CompoundButton.OnCheckedChangeListener selectionListener =
-                (button, checked) -> updateSelectionText();
+        android.widget.CompoundButton.OnCheckedChangeListener selectionListener = (button, checked) -> {
+            if (button == xrayCheck && !checked
+                    && xrayController.getState() != Xray433Controller.State.MASTER_OFF) {
+                showXrayResult(xrayController.turnMasterOff());
+            }
+            updateSelectionText();
+        };
         cameraCheck.setOnCheckedChangeListener(selectionListener);
         thermalCheck.setOnCheckedChangeListener(selectionListener);
         xrayCheck.setOnCheckedChangeListener(selectionListener);
 
-        view.findViewById(R.id.cameraControlButton).setOnClickListener(v -> openCamera());
-        view.findViewById(R.id.cameraPreviewEntry).setOnClickListener(v -> openCamera());
-        view.findViewById(R.id.thermalControlButton).setOnClickListener(v -> openThermal());
-        view.findViewById(R.id.thermalPreviewEntry).setOnClickListener(v -> openThermal());
-        view.findViewById(R.id.xrayControlButton).setOnClickListener(v -> Toast.makeText(
-                requireContext(), xrayController.isHardwareReady()
-                        ? "433 MHz GPIO 已就绪：总开关使用 D2，点动曝光使用 D3"
-                        : "GPIO 未取得控制权限，当前保持安全演练模式", Toast.LENGTH_LONG).show());
-        view.findViewById(R.id.enableAllButton).setOnClickListener(v -> {
-            refreshStatus();
-            Toast.makeText(requireContext(), "设备状态已检查；未接入的控制通道不会发送命令", Toast.LENGTH_LONG).show();
-        });
         xrayMasterSwitch.setOnCheckedChangeListener((button, checked) -> {
             if (syncingMasterSwitch) return;
             showXrayResult(checked ? xrayController.turnMasterOn() : xrayController.turnMasterOff());
         });
 
         exposureButton.setOnTouchListener((v, event) -> handleExposureTouch(event));
-        refreshStatus();
+        refreshXraySequenceStatus();
         updateSelectionText();
     }
 
-    @Override public void onResume() {
-        super.onResume();
-        handler.removeCallbacks(refreshTask);
-        handler.post(refreshTask);
-    }
-
     @Override public void onPause() {
-        handler.removeCallbacks(refreshTask);
         cancelHold();
         super.onPause();
     }
@@ -115,7 +81,6 @@ public class ExposurePrepareFragment extends Fragment {
                 Xray433Controller.SendResult result = xrayController.pressTubeVoltage();
                 voltagePressed = result.success;
                 showXrayResult(result);
-                if (voltagePressed) exposureButton.setText("正在曝光 · 松开停止");
             }
             return true;
         }
@@ -161,36 +126,14 @@ public class ExposurePrepareFragment extends Fragment {
         else if (thermal) activity.captureThermalOnlyFromExposure();
     }
 
-    private void refreshStatus() {
-        MainActivity activity = activity();
-        if (activity == null || deviceStatusText == null || radarStatusText == null) return;
-        deviceStatusText.setText("摄像头：" + state(activity.isCameraConnected())
-                + "    热成像：" + state(activity.isThermalConnected())
-                + "    X-Ray 控制：" + (xrayController.isHardwareReady() ? "GPIO已就绪" : "安全演练"));
-        RadarReading reading = activity.getLatestRadarReading();
-        radarStatusText.setText("毫米波雷达：" + (reading.isConnected() ? "已连接" : "待连接")
-                + "\n目标：" + reading.getTargetStatus()
-                + "    距离：" + reading.getDistance()
-                + "\n呼吸：" + reading.getBreathRate()
-                + "    心率：" + reading.getHeartRate());
-        refreshXraySequenceStatus();
-    }
-
     private void showXrayResult(Xray433Controller.SendResult result) {
         if (exposureResultText != null) exposureResultText.setText(result.message);
         refreshXraySequenceStatus();
     }
 
     private void refreshXraySequenceStatus() {
-        if (xrayController == null || xraySequenceStatusText == null) return;
+        if (xrayController == null) return;
         Xray433Controller.State state = xrayController.getState();
-        String channels;
-        if (state == Xray433Controller.State.EXPOSING) channels = "总开关开 · 管电流已建立 · 管电压按下";
-        else if (state == Xray433Controller.State.MASTER_ON) channels = "总开关开 · 管电流已建立 · 管电压松开";
-        else if (state == Xray433Controller.State.FAULT) channels = "异常，请检查并停止";
-        else channels = "总开关关 · 管电压松开";
-        xraySequenceStatusText.setText((xrayController.isHardwareReady() ? "433 MHz 实机" : "433 MHz 安全演练")
-                + "：" + channels);
         if (xrayMasterSwitch != null) {
             boolean shouldBeOn = state == Xray433Controller.State.MASTER_ON
                     || state == Xray433Controller.State.EXPOSING;
@@ -200,18 +143,6 @@ public class ExposurePrepareFragment extends Fragment {
                 syncingMasterSwitch = false;
             }
         }
-    }
-
-    private String state(boolean connected) { return connected ? "已连接" : "待连接"; }
-
-    private void openCamera() {
-        MainActivity activity = activity();
-        if (activity != null) activity.openCameraPageByCommand();
-    }
-
-    private void openThermal() {
-        MainActivity activity = activity();
-        if (activity != null) activity.openThermalPageByCommand();
     }
 
     private MainActivity activity() {
@@ -237,21 +168,19 @@ public class ExposurePrepareFragment extends Fragment {
         boolean camera = cameraCheck.isChecked();
         boolean thermal = thermalCheck.isChecked();
         boolean xray = xrayCheck.isChecked();
-        StringBuilder modules = new StringBuilder();
-        if (camera) modules.append("可见光拍照");
-        if (thermal) appendModule(modules, "热成像拍照");
-        if (xray) appendModule(modules, "按住管电压曝光");
-        String action = modules.length() == 0 ? "尚未选择采集模块" : modules.toString();
-        if (selectionSummaryText != null) selectionSummaryText.setText("本次操作：" + action);
+        boolean hasSelection = camera || thermal || xray;
+        if (xrayMasterSwitch != null) xrayMasterSwitch.setVisibility(xray ? View.VISIBLE : View.GONE);
         if (exposureButton != null) {
-            exposureButton.setEnabled(modules.length() > 0);
-            if (xray) exposureButton.setText("按住曝光 · 松开停止");
-            else exposureButton.setText("按下完成所选拍摄");
+            exposureButton.setEnabled(hasSelection);
+            exposureButton.setText(xray ? "长按曝光" : "开始拍摄");
         }
     }
 
-    private void appendModule(StringBuilder builder, String module) {
-        if (builder.length() > 0) builder.append(" + ");
-        builder.append(module);
+    public void setSelectedModules(boolean camera, boolean thermal, boolean xray) {
+        if (cameraCheck == null || thermalCheck == null || xrayCheck == null) return;
+        cameraCheck.setChecked(camera);
+        thermalCheck.setChecked(thermal);
+        xrayCheck.setChecked(xray);
+        updateSelectionText();
     }
 }

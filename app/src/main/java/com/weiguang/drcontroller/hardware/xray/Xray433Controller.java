@@ -101,14 +101,22 @@ public final class Xray433Controller {
 
     /** 语音远程模式：点动指定时长并由独立安全计时器自动松开。 */
     public synchronized SendResult startTimedExposure(int seconds) {
-        if (seconds < 1 || seconds > 3) return result(false, "曝光时长必须在 1 到 3 秒之间");
+        return startTimedExposureMillis(seconds * 1000L);
+    }
+
+    /** 支持小农默认 0.75 秒曝光，最长仍由 3 秒双重保护限制。 */
+    public synchronized SendResult startTimedExposureMillis(long millis) {
+        if (millis < 100 || millis > 3000) return result(false, "曝光时长必须在 0.1 到 3 秒之间");
         SendResult master = turnMasterOn();
         if (!master.success) return master;
         SendResult press = pressTubeVoltage();
         if (!press.success) return press;
         safetyHandler.removeCallbacks(timedRelease);
-        safetyHandler.postDelayed(timedRelease, seconds * 1000L);
-        return result(true, (transport.isHardwareReady() ? "" : "演练：") + "已开启 " + seconds + " 秒定时曝光，到时自动松开管电压");
+        safetyHandler.postDelayed(timedRelease, millis);
+        String duration = millis % 1000 == 0
+                ? String.valueOf(millis / 1000)
+                : String.valueOf(millis / 1000.0).replaceAll("0+$", "").replaceAll("\\.$", "");
+        return result(true, (transport.isHardwareReady() ? "" : "演练：") + "已开启 " + duration + " 秒曝光，到时自动停止");
     }
 
     /** 关闭总开关前始终先松开管电压。 */

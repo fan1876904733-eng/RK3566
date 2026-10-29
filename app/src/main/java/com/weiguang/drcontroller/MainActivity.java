@@ -956,15 +956,26 @@ public class MainActivity extends AppCompatActivity {
                 new com.weiguang.drcontroller.ui.ExposurePrepareFragment(),
                 exposurePrepareButton,
                 "准备曝光",
-                "确认设备状态、保存毫米波数据并执行曝光准备",
+                "选择模块并开始采集",
                 RadarPanelMode.HIDDEN
         );
     }
 
+    public void selectExposureModulesByCommand(boolean camera, boolean thermal, boolean xray) {
+        com.weiguang.drcontroller.ui.ExposurePrepareFragment fragment =
+                new com.weiguang.drcontroller.ui.ExposurePrepareFragment();
+        openPage(fragment, exposurePrepareButton, "准备曝光", "选择模块并开始采集", RadarPanelMode.HIDDEN);
+        fragment.setSelectedModules(camera, thermal, xray);
+    }
+
     public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult startXrayExposureByCommand(int seconds) {
+        return startXrayExposureByCommand(seconds * 1000L);
+    }
+
+    public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult startXrayExposureByCommand(long millis) {
         saveExposurePreparation();
         return com.weiguang.drcontroller.hardware.xray.Xray433Controller
-                .getInstance(this).startTimedExposure(seconds);
+                .getInstance(this).startTimedExposureMillis(millis);
     }
 
     public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult stopXrayExposureByCommand() {

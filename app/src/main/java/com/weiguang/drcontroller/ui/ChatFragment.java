@@ -557,6 +557,28 @@ public class ChatFragment extends Fragment {
             return openHistoryItemCommand(text, t);
         }
 
+        // ===== 准备曝光：由小农选择本次采集模块 =====
+        if (!isQueryLike(t) && isExposureModuleSelectionCommand(t)) {
+            boolean camera = containsAny(t, "摄像头", "可见光", "实时图");
+            boolean thermal = containsAny(t, "热成像", "热传感", "热感", "热像", "红外");
+            boolean xray = containsAny(t, "xray", "x-ray", "x光", "X光", "x射线", "X射线", "射线");
+            if (containsAny(t, "不要xray", "不要x-ray", "不要x光", "不要X光", "不要射线",
+                    "不选xray", "不选X射线", "取消xray", "取消X射线", "去掉xray", "去掉X射线")) {
+                xray = false;
+            }
+            if (camera || thermal || xray) {
+                final boolean selectedCamera = camera;
+                final boolean selectedThermal = thermal;
+                final boolean selectedXray = xray;
+                StringBuilder selected = new StringBuilder();
+                if (camera) selected.append("可见光");
+                if (thermal) appendSelection(selected, "热成像");
+                if (xray) appendSelection(selected, "X-Ray");
+                return doDeviceCommand(text, "好的，已选择" + selected + "。",
+                        () -> ma.selectExposureModulesByCommand(selectedCamera, selectedThermal, selectedXray));
+            }
+        }
+
         // ===== 页面切换类 =====
         if (t.contains("打开准备曝光") || t.contains("曝光准备页面")
                 || t.contains("打开曝光页面")) {
@@ -576,19 +598,15 @@ public class ChatFragment extends Fragment {
             return true;
         }
         if ((t.contains("开始曝光") || t.contains("开启曝光") || t.contains("开启射线源")
-                || t.contains("接通射线源")) && !isQueryLike(t)) {
+                || t.contains("接通射线源") || t.contains("帮我曝光") || t.contains("曝光一下"))
+                && !isQueryLike(t)) {
             addUserBubble(text);
             hideWelcome();
             input.setText("");
-            int seconds = parseExposureSeconds(t);
-            if (seconds < 1) {
-                String reply = "请说明曝光时长，例如：小农小农，曝光3秒。为了安全，没有时长我不会启动管电压。";
-                addAiBubble(reply);
-                speakLocalReply(reply);
-                return true;
-            }
+            long exposureMillis = parseExposureMillis(t);
+            if (exposureMillis < 0) exposureMillis = 750L;
             com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
-                    ma.startXrayExposureByCommand(seconds);
+                    ma.startXrayExposureByCommand(exposureMillis);
             addAiBubble(result.message);
             speakLocalReply(result.message);
             return true;
@@ -702,15 +720,36 @@ public class ChatFragment extends Fragment {
                 || t.contains("哪里") || t.contains("哪儿");
     }
 
-    private static int parseExposureSeconds(String text) {
-        Matcher numeric = Pattern.compile("(10|[1-9])秒").matcher(text);
-        if (numeric.find()) return Integer.parseInt(numeric.group(1));
-        String[] words = {"一", "二", "两", "三", "四", "五", "六", "七", "八", "九", "十"};
-        int[] values = {1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-        for (int i = 0; i < words.length; i++) {
-            if (text.contains(words[i] + "秒")) return values[i];
+    private static long parseExposureMillis(String text) {
+        Matcher numeric = Pattern.compile("(\\d+(?:\\.\\d+)?)秒").matcher(text);
+        if (numeric.find()) {
+            try {
+                return Math.round(Double.parseDouble(numeric.group(1)) * 1000.0);
+            } catch (NumberFormatException ignored) {
+                return -1L;
+            }
         }
-        return -1;
+        String[] words = {"一", "二", "两", "三"};
+        int[] values = {1, 2, 2, 3};
+        for (int i = 0; i < words.length; i++) {
+            if (text.contains(words[i] + "秒")) return values[i] * 1000L;
+        }
+        return -1L;
+    }
+
+    private static boolean isExposureModuleSelectionCommand(String text) {
+        return containsAny(text, "选择采集", "选择模块", "选择摄像头", "选择可见光", "选择热成像",
+                "选择xray", "选择X-Ray", "选择X射线", "只拍摄", "只拍可见光", "只拍热成像", "只拍X射线");
+    }
+
+    private static boolean containsAny(String text, String... terms) {
+        for (String term : terms) if (text.contains(term)) return true;
+        return false;
+    }
+
+    private static void appendSelection(StringBuilder builder, String value) {
+        if (builder.length() > 0) builder.append("、");
+        builder.append(value);
     }
 
     private static boolean isAffirmative(String t) {
