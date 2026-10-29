@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
  * TXS01 为低电平触发，因此空闲态必须保持高电平。</p>
  */
 public final class Xray433Controller {
+    private static final long MAX_EXPOSURE_MS = 3000L;
     public enum State { MASTER_OFF, MASTER_ON, EXPOSING, FAULT }
     public enum Channel { MASTER_POWER, TUBE_VOLTAGE_MOMENTARY }
 
@@ -83,6 +84,8 @@ public final class Xray433Controller {
         SendResult sent = transport.send(Channel.TUBE_VOLTAGE_MOMENTARY, true);
         if (!sent.success) return fault("管电压点动按下失败：" + sent.message);
         state = State.EXPOSING;
+        safetyHandler.removeCallbacks(timedRelease);
+        safetyHandler.postDelayed(timedRelease, MAX_EXPOSURE_MS);
         return result(true, sent.simulated ? "演练：管电压已按下" : "管电压已按下，正在曝光");
     }
 
@@ -98,7 +101,7 @@ public final class Xray433Controller {
 
     /** 语音远程模式：点动指定时长并由独立安全计时器自动松开。 */
     public synchronized SendResult startTimedExposure(int seconds) {
-        if (seconds < 1 || seconds > 10) return result(false, "曝光时长必须在 1 到 10 秒之间");
+        if (seconds < 1 || seconds > 3) return result(false, "曝光时长必须在 1 到 3 秒之间");
         SendResult master = turnMasterOn();
         if (!master.success) return master;
         SendResult press = pressTubeVoltage();
@@ -168,8 +171,8 @@ public final class Xray433Controller {
             }
 
             if (turnOn) {
-                // 先安排独立的 10 秒硬件节点复位，再拉低。即使 App 异常退出也会自动松开。
-                boolean ok = runRoot("(sleep 10; echo " + HIGH + " > " + VOLTAGE
+                // 先安排独立的 3 秒硬件节点复位，再拉低。即使 App 异常退出也会自动松开。
+                boolean ok = runRoot("(sleep 3; echo " + HIGH + " > " + VOLTAGE
                         + ") >/dev/null 2>&1 & echo " + LOW + " > " + VOLTAGE);
                 if (!ok) return failSafe("管电压 GPIO 按下失败");
                 return new SendResult(true, false, "voltage-pressed");
