@@ -28,8 +28,8 @@ android {
         applicationId = "com.weiguang.drcontroller"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3833
-        versionName = "3.7.9.43"
+        versionCode = 3834
+        versionName = "3.7.9.44"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

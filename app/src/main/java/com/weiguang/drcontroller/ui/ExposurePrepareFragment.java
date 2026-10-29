@@ -22,7 +22,7 @@ import com.weiguang.drcontroller.R;
 import com.weiguang.drcontroller.hardware.radar.RadarReading;
 import com.weiguang.drcontroller.hardware.xray.Xray433Controller;
 
-/** 简化的曝光准备台。实际 433 MHz 控制接入前，只保存准备数据，不发送曝光命令。 */
+/** 简化的曝光准备台。通过 K11C GPIO3_D2/D3 控制 TXS01 双通道发射模块。 */
 public class ExposurePrepareFragment extends Fragment {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -79,7 +79,9 @@ public class ExposurePrepareFragment extends Fragment {
         view.findViewById(R.id.thermalControlButton).setOnClickListener(v -> openThermal());
         view.findViewById(R.id.thermalPreviewEntry).setOnClickListener(v -> openThermal());
         view.findViewById(R.id.xrayControlButton).setOnClickListener(v -> Toast.makeText(
-                requireContext(), "433 MHz 控制接口尚未接入，暂不能控制 X-Ray 开关", Toast.LENGTH_LONG).show());
+                requireContext(), xrayController.isHardwareReady()
+                        ? "433 MHz GPIO 已就绪：总开关使用 D2，点动曝光使用 D3"
+                        : "GPIO 未取得控制权限，当前保持安全演练模式", Toast.LENGTH_LONG).show());
         view.findViewById(R.id.enableAllButton).setOnClickListener(v -> {
             refreshStatus();
             Toast.makeText(requireContext(), "设备状态已检查；未接入的控制通道不会发送命令", Toast.LENGTH_LONG).show();
@@ -164,7 +166,7 @@ public class ExposurePrepareFragment extends Fragment {
         if (activity == null || deviceStatusText == null || radarStatusText == null) return;
         deviceStatusText.setText("摄像头：" + state(activity.isCameraConnected())
                 + "    热成像：" + state(activity.isThermalConnected())
-                + "    X-Ray 控制：待接入");
+                + "    X-Ray 控制：" + (xrayController.isHardwareReady() ? "GPIO已就绪" : "安全演练"));
         RadarReading reading = activity.getLatestRadarReading();
         radarStatusText.setText("毫米波雷达：" + (reading.isConnected() ? "已连接" : "待连接")
                 + "\n目标：" + reading.getTargetStatus()

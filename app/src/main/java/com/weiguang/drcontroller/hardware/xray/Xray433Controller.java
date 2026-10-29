@@ -4,12 +4,15 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.concurrent.TimeUnit;
+
 /**
  * X-Ray 433 MHz 双通道安全控制器。
  *
- * <p>页面和语音只依赖本类；实物到位后，只需把 {@link Transport}
- * 替换为 GPIO/433 MHz 发送实现。未接入硬件时运行在演练模式，
- * 会完整校验顺序，但不对外发射任何无线命令。</p>
+ * <p>K11C 使用 30Pin 扩展口的 GPIO3_D2/D3 驱动 TXS01 的 D2/D3。
+ * TXS01 为低电平触发，因此空闲态必须保持高电平。</p>
  */
 public final class Xray433Controller {
     public enum State { MASTER_OFF, MASTER_ON, EXPOSING, FAULT }
@@ -40,7 +43,11 @@ public final class Xray433Controller {
     private String lastMessage = "433 MHz 硬件待接入，当前为安全演练模式";
 
     private Xray433Controller(Context context) {
-        transport = new PreviewTransport();
+        GpioTransport gpio = new GpioTransport();
+        transport = gpio.isHardwareReady() ? gpio : new PreviewTransport(gpio.getFailureReason());
+        if (transport.isHardwareReady()) {
+            lastMessage = "433 MHz GPIO 已就绪；D2/D3 当前保持高电平";
+        }
     }
 
     public static Xray433Controller getInstance(Context context) {
@@ -126,11 +133,92 @@ public final class Xray433Controller {
         return new SendResult(success, !transport.isHardwareReady(), message);
     }
 
-    /** 预接入实现：永不发射，只用于联调 UI、语音和顺序保护。 */
+    /**
+     * KICKPI K11C 板载 GPIO LED class 控制节点。
+     * GPIO3_D2 = 30Pin 物理 5 号脚，GPIO3_D3 = 物理 7 号脚。
+     */
+    private static final class GpioTransport implements Transport {
+        private static final String MASTER = "/sys/class/leds/gpio3d2/brightness";
+        private static final String VOLTAGE = "/sys/class/leds/gpio3d3/brightness";
+        private static final String HIGH = "255";
+        private static final String LOW = "0";
+        private static final long COMMAND_TIMEOUT_MS = 2500L;
+        private boolean ready;
+        private String failureReason = "GPIO 初始化失败";
+
+        GpioTransport() {
+            // 模块未连接时也先完成这一步：低电平触发设备的安全空闲态是高电平。
+            ready = runRoot("echo " + HIGH + " > " + MASTER + "; echo " + HIGH + " > " + VOLTAGE)
+                    && HIGH.equals(readValue(MASTER)) && HIGH.equals(readValue(VOLTAGE));
+            if (!ready) failureReason = "无法访问 K11C GPIO3_D2/D3，已回退到安全演练模式";
+        }
+
+        String getFailureReason() { return failureReason; }
+
+        @Override public boolean isHardwareReady() { return ready; }
+
+        @Override public synchronized SendResult send(Channel channel, boolean turnOn) {
+            if (!ready) return new SendResult(false, true, failureReason);
+            if (channel == Channel.MASTER_POWER) {
+                // 总开关接收器为自锁模式，开和关都是一次短按脉冲。
+                boolean ok = runRoot("echo " + LOW + " > " + MASTER
+                        + "; sleep 0.2; echo " + HIGH + " > " + MASTER);
+                if (!ok) return failSafe("总开关 GPIO 脉冲失败");
+                return new SendResult(true, false, turnOn ? "master-on-pulse" : "master-off-pulse");
+            }
+
+            if (turnOn) {
+                // 先安排独立的 10 秒硬件节点复位，再拉低。即使 App 异常退出也会自动松开。
+                boolean ok = runRoot("(sleep 10; echo " + HIGH + " > " + VOLTAGE
+                        + ") >/dev/null 2>&1 & echo " + LOW + " > " + VOLTAGE);
+                if (!ok) return failSafe("管电压 GPIO 按下失败");
+                return new SendResult(true, false, "voltage-pressed");
+            }
+            boolean ok = runRoot("echo " + HIGH + " > " + VOLTAGE);
+            if (!ok) return failSafe("管电压 GPIO 松开失败");
+            return new SendResult(true, false, "voltage-released");
+        }
+
+        private SendResult failSafe(String message) {
+            runRoot("echo " + HIGH + " > " + VOLTAGE + "; echo " + HIGH + " > " + MASTER);
+            ready = false;
+            failureReason = message;
+            return new SendResult(false, false, message);
+        }
+
+        private static boolean runRoot(String command) {
+            Process process = null;
+            try {
+                process = new ProcessBuilder("/system/xbin/su", "0", "sh", "-c", command)
+                        .redirectErrorStream(true).start();
+                boolean finished = process.waitFor(COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    return false;
+                }
+                return process.exitValue() == 0;
+            } catch (Exception ignored) {
+                if (process != null) process.destroyForcibly();
+                return false;
+            }
+        }
+
+        private static String readValue(String path) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
+                return reader.readLine().trim();
+            } catch (Exception ignored) {
+                return "";
+            }
+        }
+    }
+
+    /** 无法取得 GPIO 权限时永不发射，只用于联调 UI、语音和顺序保护。 */
     private static final class PreviewTransport implements Transport {
+        private final String reason;
+        PreviewTransport(String reason) { this.reason = reason; }
         @Override public boolean isHardwareReady() { return false; }
         @Override public SendResult send(Channel channel, boolean turnOn) {
-            return new SendResult(true, true, "preview-only");
+            return new SendResult(true, true, reason);
         }
     }
 }

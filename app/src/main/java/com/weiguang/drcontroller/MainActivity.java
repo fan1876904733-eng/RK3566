@@ -333,6 +333,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 尽可能早地把 TXS01 两个低电平触发通道恢复为空闲高电平。
+        // 即使用户从未进入“准备曝光”页面，也必须先执行安全初始化。
+        com.weiguang.drcontroller.hardware.xray.Xray433Controller.getInstance(this);
+
         systemPreferences = getSharedPreferences(SETTINGS_PREFS, MODE_PRIVATE);
         bootLockEnabled = systemPreferences.getBoolean(KEY_BOOT_LOCK_ENABLED, true);
         applySystemUiMode();
