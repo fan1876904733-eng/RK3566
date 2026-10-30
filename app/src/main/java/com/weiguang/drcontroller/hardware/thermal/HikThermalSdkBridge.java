@@ -195,6 +195,28 @@ public final class HikThermalSdkBridge {
                     .invoke(api, login, reg);
             if (userId < 0) throw sdkError("USB_Login失败");
 
+            // Flip inside the thermal device, before its temperature OSD is composed.
+            // Rotating only Android's ImageView also rotates the baked-in text and leaves
+            // temperature coordinates opposite to the corrected picture.
+            try {
+                Class<?> adjustClass = loader.loadClass("com.hcusbsdk.Interface.USB_IMAGE_VIDEO_ADJUST");
+                Object adjust = adjustClass.getConstructor().newInstance();
+                boolean read = (Boolean) apiClass
+                        .getMethod("USB_GetImageVideoAdjust", int.class, adjustClass)
+                        .invoke(api, userId, adjust);
+                if (read) {
+                    set(adjust, "byImageFlipStyle", (byte) 3); // horizontal + vertical = 180°
+                    boolean applied = (Boolean) apiClass
+                            .getMethod("USB_SetImageVideoAdjust", int.class, adjustClass)
+                            .invoke(api, userId, adjust);
+                    Log.i(TAG, "device 180-degree flip applied=" + applied);
+                } else {
+                    Log.w(TAG, "device flip settings could not be read; keeping stream available");
+                }
+            } catch (Throwable flipError) {
+                Log.w(TAG, "device-native thermal flip unavailable", flipError);
+            }
+
             Object video = loader.loadClass("com.hcusbsdk.Interface.USB_VIDEO_PARAM")
                     .getConstructor().newInstance();
             set(video, "dwVideoFormat", VIDEO_FORMAT_MJPEG);

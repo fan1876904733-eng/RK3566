@@ -10,7 +10,6 @@
         android:layout_height="match_parent"
         android:background="#000000"
         android:contentDescription="热成像实时画面"
-        android:rotation="180"
         android:scaleType="fitCenter" />
 
     <View
