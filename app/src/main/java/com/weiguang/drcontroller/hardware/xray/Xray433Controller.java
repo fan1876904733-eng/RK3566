@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
  * TXS01 为低电平触发，因此空闲态必须保持高电平。</p>
  */
 public final class Xray433Controller {
-    private static final long MAX_EXPOSURE_MS = 3000L;
+    private static final long MAX_EXPOSURE_MS = 1000L;
     public enum State { MASTER_OFF, MASTER_ON, EXPOSING, FAULT }
     public enum Channel { MASTER_POWER, TUBE_VOLTAGE_MOMENTARY }
 
@@ -104,7 +104,7 @@ public final class Xray433Controller {
         return startTimedExposureMillis(seconds * 1000L);
     }
 
-    /** 定时曝光使用 0.30–0.70 秒标准范围，3 秒复位仍作为独立硬保护。 */
+    /** 定时曝光使用 0.30–0.70 秒标准范围，1 秒复位作为独立异常保护。 */
     public synchronized SendResult startTimedExposureMillis(long millis) {
         if (millis < 300 || millis > 700) return result(false, "曝光时长必须在 0.30 到 0.70 秒之间");
         SendResult master = turnMasterOn();
@@ -179,8 +179,8 @@ public final class Xray433Controller {
             }
 
             if (turnOn) {
-                // 先安排独立的 3 秒硬件节点复位，再拉低。即使 App 异常退出也会自动松开。
-                boolean ok = runRoot("(sleep 3; echo " + HIGH + " > " + VOLTAGE
+                // 先安排独立的 1 秒 GPIO 复位，再拉低。即使 App 异常退出也会自动松开。
+                boolean ok = runRoot("(sleep 1; echo " + HIGH + " > " + VOLTAGE
                         + ") >/dev/null 2>&1 & echo " + LOW + " > " + VOLTAGE);
                 if (!ok) return failSafe("管电压 GPIO 按下失败");
                 return new SendResult(true, false, "voltage-pressed");

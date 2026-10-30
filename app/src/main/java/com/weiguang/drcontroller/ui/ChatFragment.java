@@ -33,6 +33,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -142,9 +143,11 @@ public class ChatFragment extends Fragment {
     }
 
     // 在线唤醒
-    private TextView wakeBtn;
+    private Switch wakeBtn;
     private TextView muteBtn;
     private boolean wakeEnabled = false;
+    private static final String PREF_VOICE = "xiaonong_voice";
+    private static final String PREF_WAKE_ENABLED = "wake_enabled";
     private AudioRecord wakeRecorder;
     private Thread wakeThread;
     private ByteArrayOutputStream wakeBuffer;
@@ -285,7 +288,6 @@ public class ChatFragment extends Fragment {
                 // 手动模式优先：先停掉唤醒监听，避免抢麦克风
                 if (wakeEnabled) {
                     stopWakeListening();
-                    wakeBtn.setTextColor(Color.parseColor("#556677"));
                 }
                 startVoiceRecording();
             }
@@ -293,9 +295,11 @@ public class ChatFragment extends Fragment {
 
         // 唤醒词开关
         wakeBtn = root.findViewById(R.id.wakeBtn);
-        wakeBtn.setOnClickListener(v -> {
-            wakeEnabled = !wakeEnabled;
-            if (wakeEnabled) {
+        wakeBtn.setOnCheckedChangeListener((button, enabled) -> {
+            requireContext().getSharedPreferences(PREF_VOICE, Context.MODE_PRIVATE)
+                    .edit().putBoolean(PREF_WAKE_ENABLED, enabled).apply();
+            if (enabled) {
+                wakeEnabled = true;
                 // 未授予麦克风权限时先请求权限，授权后自动启动监听，避免初始化失败
                 if (requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                         != PackageManager.PERMISSION_GRANTED) {
@@ -304,12 +308,10 @@ public class ChatFragment extends Fragment {
                 } else {
                     startWakeListening();
                 }
-                wakeBtn.setTextColor(Color.parseColor("#70D69B"));
-                Toast.makeText(requireContext(), "唤醒词已开启，说\"小农小农\"唤醒", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), "小农已开启，请说出你的需求吧。", Toast.LENGTH_SHORT).show();
             } else {
                 stopWakeListening();
-                wakeBtn.setTextColor(Color.parseColor("#556677"));
-                Toast.makeText(requireContext(), "唤醒词已关闭", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), "小农已关闭，不再监听唤醒词。", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -320,15 +322,18 @@ public class ChatFragment extends Fragment {
         // 自动开启唤醒词监听（先完整停掉可能残留的旧监听，防止新旧线程抢麦克风）
         stopWakeListening();
         wakeInitRetries = 0;
-        wakeEnabled = true;
-        wakeBtn.setTextColor(Color.parseColor("#70D69B"));
+        boolean savedWakeEnabled = requireContext()
+                .getSharedPreferences(PREF_VOICE, Context.MODE_PRIVATE)
+                .getBoolean(PREF_WAKE_ENABLED, true);
+        wakeEnabled = savedWakeEnabled;
+        wakeBtn.setChecked(savedWakeEnabled);
         // 未授予麦克风权限时先请求权限，授权回调中再启动唤醒监听；
         // 否则 AudioRecord 初始化失败两次后唤醒会被禁用，用户还以为是"唤醒失灵"
-        if (requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+        if (savedWakeEnabled && requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             wakePendingPermission = true;
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_VOICE_PERMISSION);
-        } else {
+        } else if (savedWakeEnabled) {
             startWakeListening();
         }
 
@@ -1499,6 +1504,7 @@ public class ChatFragment extends Fragment {
             statusText.setText("● 在线");
             statusText.setTextColor(Color.parseColor("#70D69B"));
             Toast.makeText(requireContext(), "没有录到声音，请重试", Toast.LENGTH_SHORT).show();
+            resumeWakeIfSelected();
         }
     }
 
@@ -1527,6 +1533,7 @@ public class ChatFragment extends Fragment {
                         } else {
                             input.setText(text);
                             input.setSelection(text.length());
+                            resumeWakeIfSelected();
                         }
                             Toast.makeText(requireContext(), "识别完成，确认后发送", Toast.LENGTH_SHORT).show();
                         });
@@ -1543,6 +1550,8 @@ public class ChatFragment extends Fragment {
                             if (wakeSessionActive) {
                                 wakeSessionActive = false;
                                 if (wakeEnabled) startWakeListening();
+                            } else {
+                                resumeWakeIfSelected();
                             }
                         });
                     }
@@ -1551,9 +1560,18 @@ public class ChatFragment extends Fragment {
                     statusText.setText("● 在线");
                     statusText.setTextColor(Color.parseColor("#70D69B"));
                     Toast.makeText(requireContext(), "识别异常：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                    resumeWakeIfSelected();
                 });
             }
         }, "baidu-asr").start();
+    }
+
+    /** 手动语音输入临时占用麦克风后，按开关状态恢复唤醒词监听。 */
+    private void resumeWakeIfSelected() {
+        if (!isAdded() || wakeBtn == null || !wakeBtn.isChecked() || voiceRecording) return;
+        if (wakeRecorder != null) return;
+        wakeEnabled = true;
+        startWakeListening();
     }
 
     /** 获取/缓存百度 access_token（有效期30天，缓存25天） */
