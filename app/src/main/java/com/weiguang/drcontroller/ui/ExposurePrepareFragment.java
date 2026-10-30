@@ -8,6 +8,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Switch;
 
@@ -32,8 +33,8 @@ public class ExposurePrepareFragment extends Fragment {
     private boolean syncingMasterSwitch;
     private View exposureDurationPanel;
     private TextView exposureDurationText;
-    private Button decreaseExposureButton;
-    private Button increaseExposureButton;
+    private ImageButton decreaseExposureButton;
+    private ImageButton increaseExposureButton;
     private final Handler exposureHandler = new Handler(Looper.getMainLooper());
     private static final long MIN_EXPOSURE_MS = 300L;
     private static final long MAX_EXPOSURE_MS = 700L;

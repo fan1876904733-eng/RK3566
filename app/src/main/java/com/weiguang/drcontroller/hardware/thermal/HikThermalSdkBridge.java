@@ -192,14 +192,16 @@ public final class HikThermalSdkBridge {
             Object video = loader.loadClass("com.hcusbsdk.Interface.USB_VIDEO_PARAM")
                     .getConstructor().newInstance();
             set(video, "dwVideoFormat", VIDEO_FORMAT_MJPEG);
-            set(video, "dwWidth", 240);
-            set(video, "dwHeight", 320);
+            // 该 HIK UVC 设备在 RK3566 Camera HAL 中实际声明的输出为 320×240。
+            // 原来反向请求 240×320 时 SDK 会返回成功，但始终没有帧回调。
+            set(video, "dwWidth", 320);
+            set(video, "dwHeight", 240);
             set(video, "dwFramerate", 30);
             set(video, "dwBitrate", 0);
             set(video, "dwParamType", 0);
             set(video, "dwValue", 0);
             if (!(Boolean) apiClass.getMethod("USB_SetVideoParam", int.class, video.getClass())
-                    .invoke(api, userId, video)) throw sdkError("设置MJPEG 240×320失败");
+                    .invoke(api, userId, video)) throw sdkError("设置MJPEG 320×240失败");
 
             Class<?> callbackClass = loader.loadClass("com.hcusbsdk.Interface.FStreamCallBack");
             Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{callbackClass},
@@ -231,7 +233,7 @@ public final class HikThermalSdkBridge {
                     streamParam.getClass()).invoke(api, userId, streamParam);
             if (streamHandle < 0) throw sdkError("USB_StartStreamCallback失败");
             running = true;
-            status("热成像正常 · MJPEG 240×320");
+            status("热成像正常 · MJPEG 320×240");
         } catch (Throwable t) {
             Log.e(TAG, "start failed", t);
             notifyError(rootMessage(t));

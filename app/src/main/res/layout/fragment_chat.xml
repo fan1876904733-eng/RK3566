@@ -75,7 +75,6 @@
             android:checked="true"
             android:showText="true"
             android:switchMinWidth="72dp"
-            android:text="唤醒词"
             android:textOff="关"
             android:textOn="开"
             android:textColor="#DCEBFA"

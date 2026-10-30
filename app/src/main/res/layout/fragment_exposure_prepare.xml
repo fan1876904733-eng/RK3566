@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_root_gradient"
@@ -101,17 +102,17 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
-                <Button
+                <ImageButton
                     android:id="@+id/decreaseExposureButton"
                     android:layout_width="44dp"
                     android:layout_height="40dp"
                     android:backgroundTint="#1565C0"
+                    android:contentDescription="减少曝光时间"
                     android:minWidth="0dp"
                     android:minHeight="0dp"
-                    android:text="-"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="20sp" />
+                    android:padding="11dp"
+                    android:src="@drawable/ic_exposure_minus"
+                    app:tint="#FFFFFF" />
 
                 <TextView
                     android:id="@+id/exposureDurationText"
@@ -123,17 +124,17 @@
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
-                <Button
+                <ImageButton
                     android:id="@+id/increaseExposureButton"
                     android:layout_width="44dp"
                     android:layout_height="40dp"
                     android:backgroundTint="#1565C0"
+                    android:contentDescription="增加曝光时间"
                     android:minWidth="0dp"
                     android:minHeight="0dp"
-                    android:text="+"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="18sp" />
+                    android:padding="11dp"
+                    android:src="@drawable/ic_exposure_plus"
+                    app:tint="#FFFFFF" />
             </LinearLayout>
         </LinearLayout>
 
