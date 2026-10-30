@@ -67,6 +67,12 @@ public final class HikThermalSdkBridge {
     private HandlerThread thread;
     private Handler worker;
     private Object api;
+    // Native SDK does not retain a Java strong reference for the JNA callback.
+    // Keep both objects alive for the entire stream lifetime or the stream can
+    // start successfully while delivering no frames after local GC.
+    private Object streamCallback;
+    private Object streamCallbackParam;
+    private volatile boolean firstFrameLogged;
     private int userId = -1;
     private int streamHandle = -1;
     private volatile boolean running;
@@ -192,19 +198,20 @@ public final class HikThermalSdkBridge {
             Object video = loader.loadClass("com.hcusbsdk.Interface.USB_VIDEO_PARAM")
                     .getConstructor().newInstance();
             set(video, "dwVideoFormat", VIDEO_FORMAT_MJPEG);
-            // 该 HIK UVC 设备在 RK3566 Camera HAL 中实际声明的输出为 320×240。
-            // 原来反向请求 240×320 时 SDK 会返回成功，但始终没有帧回调。
-            set(video, "dwWidth", 320);
-            set(video, "dwHeight", 240);
+            // 海康厂商 SDK 对该模组使用竖向参数 240×320 MJPEG。
+            // Android Camera HAL 中显示的 320×240 不能直接套用于 USB SDK，
+            // 否则 USB_StartStreamCallback 会以错误码 84 拒绝启动。
+            set(video, "dwWidth", 240);
+            set(video, "dwHeight", 320);
             set(video, "dwFramerate", 30);
             set(video, "dwBitrate", 0);
             set(video, "dwParamType", 0);
             set(video, "dwValue", 0);
             if (!(Boolean) apiClass.getMethod("USB_SetVideoParam", int.class, video.getClass())
-                    .invoke(api, userId, video)) throw sdkError("设置MJPEG 320×240失败");
+                    .invoke(api, userId, video)) throw sdkError("设置MJPEG 240×320失败");
 
             Class<?> callbackClass = loader.loadClass("com.hcusbsdk.Interface.FStreamCallBack");
-            Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{callbackClass},
+            streamCallback = Proxy.newProxyInstance(loader, new Class<?>[]{callbackClass},
                     (proxy, method, args) -> {
                         if ("invoke".equals(method.getName()) && args != null && args.length == 2) {
                             Object frame = args[1];
@@ -213,6 +220,11 @@ public final class HikThermalSdkBridge {
                             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0,
                                     Math.min(length, bytes.length));
                             if (bitmap != null) {
+                                if (!firstFrameLogged) {
+                                    firstFrameLogged = true;
+                                    Log.i(TAG, "received first thermal frame, bytes=" + length
+                                            + ", bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight());
+                                }
                                 try {
                                     // 全局单例自行把最新帧写入帧管理器：即使没有页面在显示，
                                     // 摄像头页"同时拍照"/语音拍照也能随时取到热成像帧。
@@ -225,15 +237,15 @@ public final class HikThermalSdkBridge {
                         if ("toString".equals(method.getName())) return "HikStreamCallback";
                         return null;
                     });
-            Object streamParam = loader.loadClass("com.hcusbsdk.Interface.USB_STREAM_CALLBACK_PARAM")
+            streamCallbackParam = loader.loadClass("com.hcusbsdk.Interface.USB_STREAM_CALLBACK_PARAM")
                     .getConstructor().newInstance();
-            set(streamParam, "dwStreamType", VIDEO_FORMAT_MJPEG);
-            set(streamParam, "fnStreamCallBack", callback);
+            set(streamCallbackParam, "dwStreamType", VIDEO_FORMAT_MJPEG);
+            set(streamCallbackParam, "fnStreamCallBack", streamCallback);
             streamHandle = (Integer) apiClass.getMethod("USB_StartStreamCallback", int.class,
-                    streamParam.getClass()).invoke(api, userId, streamParam);
+                    streamCallbackParam.getClass()).invoke(api, userId, streamCallbackParam);
             if (streamHandle < 0) throw sdkError("USB_StartStreamCallback失败");
             running = true;
-            status("热成像正常 · MJPEG 320×240");
+            status("热成像正常 · MJPEG 240×320");
         } catch (Throwable t) {
             Log.e(TAG, "start failed", t);
             notifyError(rootMessage(t));
@@ -366,6 +378,9 @@ public final class HikThermalSdkBridge {
         running = false;
         userId = -1;
         streamHandle = -1;
+        firstFrameLogged = false;
+        streamCallbackParam = null;
+        streamCallback = null;
         api = null;
         synchronized (this) {
             if (thread != null) thread.quitSafely();
