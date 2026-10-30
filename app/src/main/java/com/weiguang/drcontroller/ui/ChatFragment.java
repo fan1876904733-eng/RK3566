@@ -604,7 +604,7 @@ public class ChatFragment extends Fragment {
             hideWelcome();
             input.setText("");
             long exposureMillis = parseExposureMillis(t);
-            if (exposureMillis < 0) exposureMillis = 750L;
+            if (exposureMillis < 0) exposureMillis = 500L;
             com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
                     ma.startXrayExposureByCommand(exposureMillis);
             addAiBubble(result.message);

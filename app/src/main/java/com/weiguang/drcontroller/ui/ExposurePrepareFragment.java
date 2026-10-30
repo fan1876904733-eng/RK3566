@@ -1,8 +1,9 @@
 package com.weiguang.drcontroller.ui;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -29,7 +30,16 @@ public class ExposurePrepareFragment extends Fragment {
     private Xray433Controller xrayController;
     private Switch xrayMasterSwitch;
     private boolean syncingMasterSwitch;
-    private boolean voltagePressed;
+    private View exposureDurationPanel;
+    private TextView exposureDurationText;
+    private Button decreaseExposureButton;
+    private Button increaseExposureButton;
+    private final Handler exposureHandler = new Handler(Looper.getMainLooper());
+    private static final long MIN_EXPOSURE_MS = 300L;
+    private static final long MAX_EXPOSURE_MS = 700L;
+    private static final long EXPOSURE_STEP_MS = 50L;
+    private long exposureDurationMs = 500L;
+    private boolean exposureRunning;
 
     @Nullable
     @Override
@@ -48,6 +58,10 @@ public class ExposurePrepareFragment extends Fragment {
         xrayCheck = view.findViewById(R.id.selectXrayCheck);
         xrayController = Xray433Controller.getInstance(requireContext());
         xrayMasterSwitch = view.findViewById(R.id.xrayMasterSwitch);
+        exposureDurationPanel = view.findViewById(R.id.exposureDurationPanel);
+        exposureDurationText = view.findViewById(R.id.exposureDurationText);
+        decreaseExposureButton = view.findViewById(R.id.decreaseExposureButton);
+        increaseExposureButton = view.findViewById(R.id.increaseExposureButton);
         android.widget.CompoundButton.OnCheckedChangeListener selectionListener = (button, checked) -> {
             if (button == xrayCheck && !checked
                     && xrayController.getState() != Xray433Controller.State.MASTER_OFF) {
@@ -64,40 +78,21 @@ public class ExposurePrepareFragment extends Fragment {
             showXrayResult(checked ? xrayController.turnMasterOn() : xrayController.turnMasterOff());
         });
 
-        exposureButton.setOnTouchListener((v, event) -> handleExposureTouch(event));
+        decreaseExposureButton.setOnClickListener(v -> adjustExposureDuration(-EXPOSURE_STEP_MS));
+        increaseExposureButton.setOnClickListener(v -> adjustExposureDuration(EXPOSURE_STEP_MS));
+        exposureButton.setOnClickListener(v -> startSelectedCapture());
+        updateExposureDurationUi();
         refreshXraySequenceStatus();
         updateSelectionText();
     }
 
     @Override public void onPause() {
-        cancelHold();
+        cancelExposure();
         super.onPause();
     }
 
-    private boolean handleExposureTouch(MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN) {
-            boolean xray = xrayCheck != null && xrayCheck.isChecked();
-            if (xray) {
-                Xray433Controller.SendResult result = xrayController.pressTubeVoltage();
-                voltagePressed = result.success;
-                showXrayResult(result);
-            }
-            return true;
-        }
-        if (event.getAction() == MotionEvent.ACTION_UP) {
-            exposureButton.performClick();
-            finishMomentaryCapture();
-            return true;
-        }
-        if (event.getAction() == MotionEvent.ACTION_CANCEL) {
-            releaseVoltageOnly();
-            resetExposureButton();
-            return true;
-        }
-        return true;
-    }
-
-    private void finishMomentaryCapture() {
+    private void startSelectedCapture() {
+        if (exposureRunning) return;
         MainActivity activity = activity();
         if (activity == null) return;
         boolean camera = cameraCheck != null && cameraCheck.isChecked();
@@ -108,19 +103,38 @@ public class ExposurePrepareFragment extends Fragment {
             return;
         }
         if (xray) {
-            if (!voltagePressed) {
-                exposureResultText.setText("未开始曝光：请先开启总开关，再按住曝光按钮");
-                resetExposureButton();
+            if (xrayController.getState() != Xray433Controller.State.MASTER_ON) {
+                exposureResultText.setText("请先开启射线源总开关");
                 return;
             }
-            String caseId = activity.saveExposurePreparation();
-            Xray433Controller.SendResult result = xrayController.releaseTubeVoltage();
-            voltagePressed = false;
-            exposureResultText.setText(result.message + "\n准备记录：" + caseId);
-            refreshXraySequenceStatus();
+            activity.saveExposurePreparation();
+            Xray433Controller.SendResult result = xrayController.startTimedExposureMillis(exposureDurationMs);
+            if (!result.success) {
+                showXrayResult(result);
+                return;
+            }
+            exposureRunning = true;
+            updateSelectionText();
+            exposureResultText.setText("正在曝光 " + formatDuration(exposureDurationMs));
+            exposureHandler.postDelayed(() -> finishTimedCapture(camera, thermal),
+                    exposureDurationMs);
         } else {
             exposureResultText.setText("正在启动所选模块…");
+            captureSelectedModules(activity, camera, thermal);
         }
+    }
+
+    private void finishTimedCapture(boolean camera, boolean thermal) {
+        MainActivity activity = activity();
+        exposureRunning = false;
+        refreshXraySequenceStatus();
+        updateSelectionText();
+        if (activity == null) return;
+        exposureResultText.setText("曝光完成");
+        captureSelectedModules(activity, camera, thermal);
+    }
+
+    private void captureSelectedModules(MainActivity activity, boolean camera, boolean thermal) {
         if (camera && thermal) activity.capturePairedPhotoByCommand();
         else if (camera) activity.captureCameraOnlyFromExposure();
         else if (thermal) activity.captureThermalOnlyFromExposure();
@@ -149,18 +163,30 @@ public class ExposurePrepareFragment extends Fragment {
         return getActivity() instanceof MainActivity ? (MainActivity) getActivity() : null;
     }
 
-    private void cancelHold() {
-        releaseVoltageOnly();
-        resetExposureButton();
+    private void cancelExposure() {
+        exposureHandler.removeCallbacksAndMessages(null);
+        if (exposureRunning && xrayController != null) xrayController.releaseTubeVoltage();
+        exposureRunning = false;
     }
 
-    private void releaseVoltageOnly() {
-        if (voltagePressed && xrayController != null) xrayController.releaseTubeVoltage();
-        voltagePressed = false;
+    private void adjustExposureDuration(long deltaMs) {
+        exposureDurationMs = Math.max(MIN_EXPOSURE_MS,
+                Math.min(MAX_EXPOSURE_MS, exposureDurationMs + deltaMs));
+        updateExposureDurationUi();
     }
 
-    private void resetExposureButton() {
-        updateSelectionText();
+    private void updateExposureDurationUi() {
+        if (exposureDurationText != null) exposureDurationText.setText(formatDuration(exposureDurationMs));
+        if (decreaseExposureButton != null) {
+            decreaseExposureButton.setEnabled(!exposureRunning && exposureDurationMs > MIN_EXPOSURE_MS);
+        }
+        if (increaseExposureButton != null) {
+            increaseExposureButton.setEnabled(!exposureRunning && exposureDurationMs < MAX_EXPOSURE_MS);
+        }
+    }
+
+    private String formatDuration(long millis) {
+        return String.format(java.util.Locale.CHINA, "%.2f s", millis / 1000.0);
     }
 
     private void updateSelectionText() {
@@ -170,10 +196,13 @@ public class ExposurePrepareFragment extends Fragment {
         boolean xray = xrayCheck.isChecked();
         boolean hasSelection = camera || thermal || xray;
         if (xrayMasterSwitch != null) xrayMasterSwitch.setVisibility(xray ? View.VISIBLE : View.GONE);
+        if (exposureDurationPanel != null) exposureDurationPanel.setVisibility(xray ? View.VISIBLE : View.GONE);
+        if (xrayMasterSwitch != null) xrayMasterSwitch.setEnabled(!exposureRunning);
         if (exposureButton != null) {
-            exposureButton.setEnabled(hasSelection);
-            exposureButton.setText(xray ? "长按曝光" : "开始拍摄");
+            exposureButton.setEnabled(hasSelection && !exposureRunning);
+            exposureButton.setText(xray ? "开始曝光" : "开始拍摄");
         }
+        updateExposureDurationUi();
     }
 
     public void setSelectedModules(boolean camera, boolean thermal, boolean xray) {

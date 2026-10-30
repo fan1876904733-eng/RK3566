@@ -104,9 +104,9 @@ public final class Xray433Controller {
         return startTimedExposureMillis(seconds * 1000L);
     }
 
-    /** 支持小农默认 0.75 秒曝光，最长仍由 3 秒双重保护限制。 */
+    /** 定时曝光使用 0.30–0.70 秒标准范围，3 秒复位仍作为独立硬保护。 */
     public synchronized SendResult startTimedExposureMillis(long millis) {
-        if (millis < 100 || millis > 3000) return result(false, "曝光时长必须在 0.1 到 3 秒之间");
+        if (millis < 300 || millis > 700) return result(false, "曝光时长必须在 0.30 到 0.70 秒之间");
         SendResult master = turnMasterOn();
         if (!master.success) return master;
         SendResult press = pressTubeVoltage();
