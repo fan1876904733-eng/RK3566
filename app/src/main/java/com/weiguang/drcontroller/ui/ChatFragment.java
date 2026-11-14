@@ -2531,7 +2531,6 @@ public class ChatFragment extends Fragment {
                                 streamingView.setText("读取回复失败：" + e.getMessage());
                             }
                         });
-                    }
                     } finally {
                         response.close();
                     }
@@ -2937,7 +2936,6 @@ public class ChatFragment extends Fragment {
                                 streamingView.setText("读取回复失败：" + e.getMessage());
                             }
                         });
-                    }
                     } finally {
                         response.close();
                     }
