@@ -664,7 +664,615 @@ public class ChatFragment extends Fragment {
             // 携带用户对拍摄目标的口语描述（如"我要拍一只白色的小兔子"）作为分析参考
             String hint = text.replaceAll("^(小农|小农助手|助手|帮我|给我|请|你好)[，,。\\s]*", "").trim();
             return doDeviceCommand(text, "好的，小农开始**一键全检**：自动拍摄实时图+热成像，并调用AI多模态分析，稍后为你播报结论。",
-                    () -> { if (ma != null) ma.runFullInspectionByCom…8307 tokens truncated…
+                    () -> { if (ma != null) ma.runFullInspectionByCommand(hint); });
+        }
+
+
+        // ===== 页面切换类 =====
+        // 兼容语音识别偏差（"暴光/爆光"）以及"进入/切到/看下准备曝光"等口语说法
+        if (!isQueryLike(t) && isOpenExposurePageCommand(t)) {
+            return doDeviceCommand(text, "好的，已打开**准备曝光**页面。", ma::openExposurePreparePage);
+        }
+
+        // X-Ray 射线源：总开关建立管电流，管电压为定时点动，到时必须自动松开。
+        if ((t.contains("停止") || t.contains("关闭") || t.contains("断开"))
+                && (t.contains("曝光") || t.contains("射线源") || t.contains("x光") || t.contains("X光"))) {
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
+                    ma.stopXrayExposureByCommand();
+            addAiBubble(result.message);
+            speakLocalReply(result.message);
+            return true;
+        }
+        if ((t.contains("开始曝光") || t.contains("开启曝光") || t.contains("开启射线源")
+                || t.contains("接通射线源") || t.contains("帮我曝光") || t.contains("曝光一下"))
+                && !isQueryLike(t)) {
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            long exposureMillis = parseExposureMillis(t);
+            if (exposureMillis < 0) exposureMillis = 500L;
+            com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
+                    ma.startXrayExposureByCommand(exposureMillis);
+            addAiBubble(result.message);
+            speakLocalReply(result.message);
+            return true;
+        }
+        // ===== 拍照控制 =====
+        if (t.contains("同时拍照") || t.contains("拍照") || t.contains("拍摄")
+                || t.contains("拍一张") || t.contains("拍个照") || t.contains("照张相")
+                || (t.contains("拍") && t.contains("热成像"))) {
+            return doDeviceCommand(text, "好的，正在**同时拍照**，保存实时图和热成像图。", ma::capturePairedPhotoByCommand);
+        }
+
+        // ===== 毫米波雷达页面：先跳转（未连接时顺带自动连接） =====
+        // 例："打开毫米波雷达" / "进入雷达页面" / "看下雷达详情"
+        if (!isQueryLike(t) && isOpenRadarPageCommand(t)) {
+            return doDeviceCommand(text, "好的，已打开**毫米波雷达**页面。", ma::openRadarPageByCommand);
+        }
+
+        // ===== 毫米波雷达 =====
+        if (containsRadarWord(t) && !isQueryLike(t) && !t.contains("关闭")
+                && !(t.contains("数据") || t.contains("状态") || t.contains("多少")
+                || t.contains("测距") || t.contains("测一下") || t.contains("距离")
+                || t.contains("呼吸") || t.contains("心率"))) {
+            return doDeviceCommand(text, "好的，正在**连接毫米波雷达**…", ma::connectRadarByCommand);
+        }
+
+        // ===== 状态查询 =====
+        if (t.contains("雷达数据") || t.contains("当前距离") || t.contains("雷达测距")
+                || (t.contains("雷达") && (t.contains("多少") || t.contains("多少厘米")
+                || t.contains("测一下") || t.contains("测距")))) {
+            com.weiguang.drcontroller.hardware.radar.RadarReading r = ma.getLatestRadarReading();
+            String reply = "当前毫米波雷达数据：\n\n"
+                    + "- **目标**：" + (r.isConnected() ? r.getTargetStatus() : "未连接/未检测到") + "\n"
+                    + "- **距离**：" + r.getDistance() + "\n"
+                    + "- **呼吸**：" + r.getBreathRate() + "\n"
+                    + "- **心率**：" + r.getHeartRate() + "\n\n"
+                    + (r.isConnected() ? "数据时间 " + formatReadableTime(r.getDataTimeMillis())
+                    : "雷达未连接，需要我帮你连接吗？");
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            addAiBubble(reply);
+            speakLocalReply(r.isConnected() ? "当前距离" + r.getDistance() + "，呼吸" + r.getBreathRate() + "，心率" + r.getHeartRate()
+                    : "雷达尚未连接");
+            return true;
+        }
+
+        if (t.contains("设备状态") || t.contains("连接状态") || t.contains("检查设备")
+                || t.contains("一切正常") || t.contains("状态如何") || t.contains("状态怎么样")) {
+            StringBuilder reply = new StringBuilder("当前设备状态：\n\n");
+            reply.append("- **摄像头**：").append(ma.isCameraConnected() ? "已连接" : "待连接").append("\n");
+            reply.append("- **热成像**：").append(ma.isThermalConnected() ? "已连接" : "待连接").append("\n");
+            reply.append("- **X-Ray**：").append(ma.isXrayConnected() ? "已连接" : "待连接").append("\n");
+            com.weiguang.drcontroller.hardware.radar.RadarReading r = ma.getLatestRadarReading();
+            reply.append("- **毫米波雷达**：").append(r.isConnected() ? "已连接" : "待连接");
+            addUserBubble(text);
+            hideWelcome();
+            input.setText("");
+            addAiBubble(reply.toString());
+            speakLocalReply(ma.isCameraConnected() && ma.isThermalConnected() && ma.isXrayConnected() && r.isConnected()
+                    ? "所有设备均已连接" : "部分设备未连接，已显示详细状态");
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean handleNavigationOrAnalysis(String text, String normalized, MainActivity activity) {
+        VoiceCommandRouter.Action action = VoiceCommandRouter.match(text);
+        switch (action) {
+            case HOME: return doDeviceCommand(text, "已回到首页。", activity::openHomePageByCommand);
+            case CAMERA: return doDeviceCommand(text, "已打开摄像头。", activity::openCameraPageByCommand);
+            case THERMAL: return doDeviceCommand(text, "已打开热成像。", activity::openThermalPageByCommand);
+            case RADAR: return doDeviceCommand(text, "已打开毫米波雷达。", activity::openRadarPageByCommand);
+            case EXPOSURE: return doDeviceCommand(text, "已打开准备曝光。", activity::openExposurePreparePage);
+            case XRAY: return doDeviceCommand(text, "已打开X-Ray影像。", activity::openXrayPageByCommand);
+            case HISTORY: return doDeviceCommand(text, "已打开历史记录。", activity::openHistoryPageByCommand);
+            case ASSISTANT: return doDeviceCommand(text, "已打开小农助手。", activity::openChatPage);
+            case BACK: return doDeviceCommand(text, "已返回上一级。", activity::navigateUpByCommand);
+            case AI:
+                if (parseOrdinal(normalized) < 0 && !containsAny(normalized,
+                        "当前", "这条", "这个", "刚才", "刚刚", "选中", "已选")) {
+                    return doDeviceCommand(text, "已打开AI分析页面。", activity::openAiAnalysisPageByCommand);
+                }
+                // An explicit case reference opens that case's analysis page.
+            case CASE_DETAIL:
+            case REPORT:
+            case ANALYZE: {
+                CaseRepository.CaseRecord record = resolveVoiceCase(normalized);
+                if (record == null) return noMatchingCase(text);
+                String caseId = record.getCaseId();
+                if (action == VoiceCommandRouter.Action.ANALYZE) {
+                    return analyzeAndReadCase(text, caseId);
+                }
+                if (action == VoiceCommandRouter.Action.CASE_DETAIL) {
+                    return doDeviceCommand(text, "已打开案例影像。", () -> activity.openCaseDetail(caseId));
+                }
+                if (action == VoiceCommandRouter.Action.REPORT && record.hasAiReport()) {
+                    return doDeviceCommand(text, "已打开分析报告。", () -> activity.openAiReport(caseId));
+                }
+                return doDeviceCommand(text, record.hasAiReport() ? "已打开该案例的分析页面。"
+                                : "该案例还没有报告，已打开分析页面，可以说开始分析。",
+                        () -> activity.openAiForCase(caseId));
+            }
+            default: return false;
+        }
+    }
+
+    /** Explicit ordinal/time wins, then visible selection, then most recent capture. */
+    private CaseRepository.CaseRecord resolveVoiceCase(String text) {
+        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
+        if (text.contains("第")) {
+            int ordinal = parseOrdinal(text);
+            return ordinal > 0 && ordinal <= records.size() ? records.get(ordinal - 1) : null;
+        }
+        if (hasTimeWord(text)) {
+            TimeFilter filter = parseTimeFilter(text);
+            for (CaseRepository.CaseRecord record : records) {
+                if (filter != null && filter.matches(record.getTimeMillis())) return record;
+            }
+            return null;
+        }
+        if (containsAny(text, "最新", "最近", "最后")) {
+            return records.isEmpty() ? null : records.get(0);
+        }
+        MainActivity activity = (MainActivity) getActivity();
+        String caseId = activity == null ? null : activity.getCurrentCaseId();
+        if (containsAny(text, "刚才", "刚刚", "刚拍") && activity != null) {
+            caseId = activity.getLastCapturedCaseId();
+        }
+        if (caseId == null && activity != null) caseId = activity.getLastCapturedCaseId();
+        if (caseId != null) return CaseRepository.findCase(requireContext(), caseId);
+        return records.isEmpty() ? null : records.get(0);
+    }
+
+    private boolean noMatchingCase(String text) {
+        return doDeviceCommand(text, "没有找到对应的历史案例，请先拍照或确认记录序号。", () -> { });
+    }
+
+    /** 是否疑问句（查询意图，不应触发页面切换） */
+    private static boolean isQueryLike(String t) {
+        return t.contains("几") || t.contains("多少") || t.contains("哪些")
+                || t.contains("什么") || t.contains("为什么") || t.contains("为啥")
+                || t.contains("哪条") || t.contains("几个") || t.contains("有没有")
+                || t.contains("怎么") || t.contains("如何") || t.contains("在哪")
+                || t.contains("哪里") || t.contains("哪儿");
+    }
+
+    private static long parseExposureMillis(String text) {
+        Matcher numeric = Pattern.compile("(\\d+(?:\\.\\d+)?)秒").matcher(text);
+        if (numeric.find()) {
+            try {
+                return Math.round(Double.parseDouble(numeric.group(1)) * 1000.0);
+            } catch (NumberFormatException ignored) {
+                return -1L;
+            }
+        }
+        String[] words = {"一", "二", "两", "三"};
+        int[] values = {1, 2, 2, 3};
+        for (int i = 0; i < words.length; i++) {
+            if (text.contains(words[i] + "秒")) return values[i] * 1000L;
+        }
+        return -1L;
+    }
+
+    private static boolean isExposureModuleSelectionCommand(String text) {
+        return containsAny(text, "选择采集", "选择模块", "选择摄像头", "选择可见光", "选择热成像",
+                "选择xray", "选择X-Ray", "选择X射线", "只拍摄", "只拍可见光", "只拍热成像", "只拍X射线");
+    }
+
+    /** 是否为"打开准备曝光页面"类指令（兼容"暴光/爆光"等识别偏差） */
+    private static boolean isOpenExposurePageCommand(String text) {
+        String s = text.replace("暴光", "曝光").replace("爆光", "曝光");
+        if (!s.contains("曝光") && !s.contains("曝光准备")) return false;
+        // 开始/停止曝光、选择采集模块属于其他分支，不能当成页面切换
+        if (containsAny(s, "开始曝光", "开启曝光", "停止曝光", "关闭曝光", "帮我曝光",
+                "曝光一下", "选择", "只拍", "不要", "取消", "断开")) {
+            return false;
+        }
+        return containsNavVerb(s) || containsAny(s, "准备曝光", "曝光准备", "曝光页面", "曝光台");
+    }
+
+    /** 是否为"打开毫米波雷达页面"类指令（不包含连接、查询数据等意图） */
+    private static boolean isOpenRadarPageCommand(String text) {
+        String s = text.replace("雷打", "雷达");
+        if (!containsRadarWord(s)) return false;
+        if (containsAny(s, "关闭", "断开")) return false;
+        // 连接、查询数据/状态由后面的专用分支处理
+        if (containsAny(s, "数据", "状态", "多少", "测距", "距离", "呼吸", "心率", "连接")) {
+            return false;
+        }
+        return containsAny(s, "打开", "进入", "切到", "切换到", "跳到", "跳转", "转到", "转去",
+                "显示", "看看", "看下", "查看", "雷达页面", "雷达详情", "雷达界面");
+    }
+
+    /** 页面跳转动词：语音常说"转到/跳转到/切到/看下"，不能只认"打开"。 */
+    private static boolean containsNavVerb(String text) {
+        return containsAny(text, "打开", "进入", "切到", "切换到", "跳到", "跳转",
+                "转到", "转去", "显示", "看看", "看下", "查看", "回到");
+    }
+
+    private static boolean containsAny(String text, String... terms) {
+        for (String term : terms) if (text.contains(term)) return true;
+        return false;
+    }
+
+    /**
+     * 雷达关键词容错：百度短语音常把"毫米波雷达"识别成"毫米玻璃的/毫米波雷打/豪米波"等，
+     * 命中词根才按雷达意图处理，避免整句落到大模型只回话不动作。
+     */
+    private static boolean containsRadarWord(String text) {
+        if (text == null) return false;
+        return containsAny(text, "雷达", "雷打", "毫米波", "毫米玻", "豪米波",
+                "毫米博", "毫米薄", "毫米柏");
+    }
+
+    private static void appendSelection(StringBuilder builder, String value) {
+        if (builder.length() > 0) builder.append("、");
+        builder.append(value);
+    }
+
+    private static boolean isAffirmative(String t) {
+        return t.equals("需要") || t.equals("要") || t.equals("是") || t.equals("确认")
+                || t.contains("需要分析") || t.contains("开始分析") || t.contains("帮我分析")
+                || t.contains("可以") || t.contains("好的");
+    }
+
+    private static boolean isNegative(String t) {
+        return t.contains("不需要") || t.contains("不要") || t.contains("取消") || t.contains("算了");
+    }
+
+    private boolean readCaseReportCommand(String userText, String t) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        final CaseRepository.CaseRecord selected = resolveVoiceCase(t);
+        new Thread(() -> {
+            List<CaseRepository.CaseRecord> records =
+                    CaseRepository.queryCases(requireContext().getApplicationContext(), 0);
+            int foundIndex = -1;
+            for (int i = 0; selected != null && i < records.size(); i++) {
+                if (selected.getCaseId().equals(records.get(i).getCaseId())) {
+                    foundIndex = i;
+                    break;
+                }
+            }
+            final int index = foundIndex;
+            if (index < 0 || index >= records.size()) {
+                mainHandler.post(() -> {
+                    if (!isAdded()) return;
+                    String reply = "没有找到对应的历史案例，请确认记录序号或先选择案例。";
+                    addAiBubble(reply);
+                    speakLocalReply(reply);
+                });
+                return;
+            }
+            CaseRepository.CaseRecord record = records.get(index);
+            mainHandler.post(() -> {
+                if (!isAdded()) return;
+                if (record.hasAiReport()) {
+                    String summary = buildInspectionSpokenSummary(record.getAiReport());
+                    addAiBubble("第 " + (index + 1) + " 条历史记录的报告简要概括：\n\n"
+                            + summary + "\n\n需要我继续完整读取AI分析报告吗？");
+                    if (getActivity() instanceof MainActivity) {
+                        ((MainActivity) getActivity()).openAiReport(record.getCaseId());
+                    }
+                    CaseRepository.markAiReportRead(requireContext(), record.getCaseId());
+                    pendingFullReportCaseId = record.getCaseId();
+                    speakFollowUpQuestion(summary + "。需要我继续完整读取AI分析报告吗");
+                } else {
+                    pendingAnalysisCaseId = record.getCaseId();
+                    String reply = "第 " + (index + 1) + " 条历史记录还没有AI分析报告。需要我现在分析，完成后为你读取吗？";
+                    addAiBubble(reply);
+                    speakFollowUpQuestion(reply);
+                }
+            });
+        }, "history-read-report").start();
+        return true;
+    }
+
+    private boolean analyzeAndReadCase(String userText, String caseId) {
+        if (userText != null && !userText.trim().isEmpty()) {
+            addUserBubble(userText);
+            hideWelcome();
+            input.setText("");
+        }
+        if (analysisRunning || isInspectionBusy()) {
+            addAiBubble("当前已有分析任务正在执行，完成后可以继续分析。");
+            speakLocalReply("当前正在分析，请稍等");
+            return true;
+        }
+        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
+        if (record == null) {
+            addAiBubble("没有找到可分析的案例，请先拍照或选择历史记录。");
+            speakLocalReply("请先拍照或选择历史记录");
+            return true;
+        }
+        analysisRunning = true;
+        final int generation = ++analysisGeneration;
+        addAiBubble("正在分析所选案例，完成后将打开报告并播报概括。");
+        speakLocalReply("正在分析，完成后为你播报概括");
+        AiAnalyzer.analyzeCase(requireContext().getApplicationContext(), record, null,
+                new AiAnalyzer.Callback() {
+                    @Override public void onSuccess(String report) {
+                        mainHandler.post(() -> {
+                            if (!isAdded() || generation != analysisGeneration) return;
+                            analysisRunning = false;
+                            if (getActivity() instanceof MainActivity) {
+                                ((MainActivity) getActivity()).openAiReport(caseId);
+                            }
+                            pendingFullReportCaseId = caseId;
+                            String summary = buildInspectionSpokenSummary(report);
+                            addAiBubble("AI分析已完成。简要概括：\n\n" + summary
+                                    + "\n\n需要我继续完整读取AI分析报告吗？");
+                            announceWhenMicFree(() -> speakFollowUpQuestion(
+                                    summary + "。需要我继续完整读取AI分析报告吗",
+                                    "● 继续聆听，可直接回答", ChatFragment.this::runPendingTask));
+                        });
+                    }
+
+                    @Override public void onError(String error) {
+                        mainHandler.post(() -> {
+                            if (!isAdded() || generation != analysisGeneration) return;
+                            analysisRunning = false;
+                            addAiBubble("AI分析失败：" + error);
+                            announceWhenMicFree(() -> speakFollowUpQuestion(
+                                    "AI分析失败，" + error, "● 继续聆听", ChatFragment.this::runPendingTask));
+                        });
+                    }
+                });
+        return true;
+    }
+
+    private boolean analyzeCaseCommand(String userText, String t) {
+        CaseRepository.CaseRecord record = resolveVoiceCase(t);
+        if (record == null) return noMatchingCase(userText);
+        return analyzeAndReadCase(userText, record.getCaseId());
+    }
+
+    private boolean analyzeLatestCaseCommand(String userText) {
+        return analyzeCaseCommand(userText, VoiceCommandRouter.normalize(userText));
+    }
+
+    /** AI 分析完成（区别于全检）：播报结论，并继续连续聆听 */
+    private void notifyAnalysisDone(String caseId, String report) {
+        if (report == null || report.trim().isEmpty()) {
+            addAiBubble("**AI分析**：没有返回有效内容。");
+            announceWhenMicFree(() -> speakText("AI分析没有返回内容，请重试", this::runPendingTask));
+            return;
+        }
+        addAiBubble("**AI分析完成**，报告已保存到历史记录：\n\n" + report);
+        String summary = buildInspectionSpokenSummary(report);
+        announceWhenMicFree(() -> speakFollowUpQuestion(
+                summary + "完整分析报告已经保存，也可以到历史记录中打开本次记录查看。",
+                "● 继续聆听，可直接说指令", this::runPendingTask));
+    }
+
+    private boolean readFullReportNow(String userText, String caseId) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
+        if (record == null || !record.hasAiReport()) {
+            addAiBubble("这条历史记录的AI分析报告已不存在。");
+            speakLocalReply("这条历史记录的AI分析报告已不存在");
+            return true;
+        }
+        addAiBubble("好的，开始完整读取AI分析报告。你可以说“小农小农”随时打断我。");
+        speakReportText(record.getAiReport());
+        return true;
+    }
+
+    private boolean requestDeleteCase(String userText, String t) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        int target = parseOrdinal(t);
+        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
+        if (target <= 0 || target > records.size()) {
+            String reply = "请明确告诉我要删除第几条历史记录。";
+            addAiBubble(reply);
+            speakLocalReply(reply);
+            return true;
+        }
+        CaseRepository.CaseRecord record = records.get(target - 1);
+        pendingDeleteCaseId = record.getCaseId();
+        String reply = "删除后无法恢复。确认删除第 " + target + " 条历史记录吗？请回答确认或取消。";
+        addAiBubble(reply);
+        speakFollowUpQuestion(reply);
+        return true;
+    }
+
+    private boolean deleteCaseConfirmed(String userText, String caseId) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
+        if (record == null) {
+            addAiBubble("这条历史记录已经不存在了。");
+            return true;
+        }
+        CaseRepository.deleteCase(requireContext(), record, new CaseRepository.DeleteCallback() {
+            @Override public void onDeleted() {
+                addAiBubble("历史记录已删除。");
+                speakLocalReply("历史记录已删除");
+            }
+            @Override public void onError(String message) {
+                addAiBubble(message);
+                speakLocalReply(message);
+            }
+        });
+        return true;
+    }
+
+    private boolean requestRenameCase(String userText, String t) {
+        int target = parseOrdinal(t);
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
+        if (target <= 0 || target > records.size()) {
+            String reply = "请明确告诉我要修改第几条历史记录的名称。";
+            addAiBubble(reply);
+            speakLocalReply(reply);
+            return true;
+        }
+        String newName = extractNewCaseName(userText);
+        String caseId = records.get(target - 1).getCaseId();
+        if (newName.isEmpty()) {
+            pendingRenameCaseId = caseId;
+            addAiBubble("请告诉我新的名称。你可以直接说，例如：左手腕检测。 ");
+            speakFollowUpQuestion("请告诉我新的名称");
+            return true;
+        }
+        return renameCaseNow(null, caseId, newName);
+    }
+
+    private boolean renameCaseNow(String userText, String caseId, String newName) {
+        if (userText != null) {
+            addUserBubble(userText);
+            hideWelcome();
+            input.setText("");
+        }
+        String clean = newName == null ? "" : newName.trim();
+        if (clean.length() > 20) clean = clean.substring(0, 20);
+        CaseRepository.setCaseName(requireContext(), caseId, clean);
+        String reply = "已将这条历史记录重命名为“" + clean + "”。";
+        addAiBubble(reply);
+        speakLocalReply(reply);
+        return true;
+    }
+
+    private static String extractNewCaseName(String text) {
+        if (text == null) return "";
+        Matcher matcher = Pattern.compile("(?:修改名称为|名称为|重命名为|改名为|命名为|改成|叫做|叫)([^，。！？,.!?]+)").matcher(text);
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private void speakReportText(String report) {
+        if (report == null || report.trim().isEmpty()) return;
+        String plain = stripEmoji(report).replaceAll("[*#`]+", "")
+                .replaceAll("\\s+", " ").trim();
+        if (plain.length() > 1800) plain = plain.substring(0, 1800) + "。其余内容请在报告页面查看";
+        List<String> chunks = new java.util.ArrayList<>();
+        while (!plain.isEmpty()) {
+            int end = Math.min(180, plain.length());
+            if (end < plain.length()) {
+                int split = Math.max(plain.lastIndexOf('。', end), plain.lastIndexOf('；', end));
+                if (split > 60) end = split + 1;
+            }
+            chunks.add(plain.substring(0, end));
+            plain = plain.substring(end).trim();
+        }
+        if (wakeEnabled) wakeState = WSTATE_WAIT_TTS;
+        for (int i = 0; i < chunks.size(); i++) {
+            boolean last = i == chunks.size() - 1;
+            speakText(chunks.get(i), last ? () -> {
+                if (wakeEnabled) wakeState = WSTATE_LISTEN;
+            } : null);
+        }
+    }
+
+    /** 播报一个追问，播完后直接收听回答，不要求用户再次说唤醒词。 */
+    private void speakFollowUpQuestion(String text) {
+        speakFollowUpQuestion(text, "● 等待回答");
+    }
+
+    /**
+     * 播报后直接进入连续聆听：用户可立即说下一条指令，不必再喊"小农小农"；
+     * 若约 6 秒没有检测到人声，自动退回唤醒词模式，避免长时间占用麦克风。
+     */
+    private void speakFollowUpQuestion(String text, String statusLabel) {
+        speakFollowUpQuestion(text, statusLabel, null);
+    }
+
+    /**
+     * 播报后进入连续聆听；afterTts 在播报结束（进入聆听）后执行，
+     * 用于自动执行任务执行期间排队的新指令。
+     */
+    private void speakFollowUpQuestion(String text, String statusLabel, Runnable afterTts) {
+        if (!wakeEnabled) {
+            speakText(text, afterTts);
+            return;
+        }
+        wakeState = WSTATE_WAIT_TTS;
+        final String spoken = text;
+        speakText(text, () -> {
+            // 记录刚播报的内容与结束时间，供 sendMessage 过滤麦克风收回声
+            lastSpokenReply = spoken;
+            lastSpokenReplyEndMs = System.currentTimeMillis();
+            if (!wakeEnabled) {
+                if (afterTts != null) afterTts.run();
+                return;
+            }
+            wakeBuffer.reset();
+            silentFrames = 0;
+            questionVoicedFrames = 0;
+            wakeTrimPoint = 0;
+            wakeTtsStartMs = System.currentTimeMillis();
+            wakeTtsDoneMs = wakeTtsStartMs;
+            wakeFollowUpDeadlineMs = wakeTtsDoneMs + FOLLOW_UP_SILENCE_EXIT_MS;
+            wakeState = WSTATE_RECORD;
+            statusText.setText(statusLabel);
+            statusText.setTextColor(Color.parseColor("#FFB74D"));
+            if (afterTts != null) afterTts.run();
+        });
+    }
+
+    /** 本地统计历史/AI分析数量并直接回答，避免误触发"打开历史记录"页面 */
+    private boolean answerHistoryStats(String userText) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        new Thread(() -> {
+            try {
+                List<CaseRepository.CaseRecord> records =
+                        CaseRepository.queryCases(requireContext().getApplicationContext(), 0);
+                int total = records.size();
+                int withAi = 0;
+                int withXray = 0;
+                for (CaseRepository.CaseRecord r : records) {
+                    if (r.hasAiReport()) withAi++;
+                    if (r.hasXrayImage()) withXray++;
+                }
+                final String reply = "当前历史记录共有 **" + total + " 条案例**，其中 **"
+                        + withAi + " 条**有AI分析报告，**" + withXray + " 条**包含X-Ray影像。";
+                final String spoken = "当前历史记录共有" + total + "条案例，其中" + withAi + "条有AI分析报告，"
+                        + withXray + "条包含X光影像。";
+                mainHandler.post(() -> {
+                    if (!isAdded()) return;
+                    addAiBubble(reply);
+                    speakLocalReply(spoken);
+                });
+            } catch (Exception ignored) {
+                mainHandler.post(() -> {
+                    if (!isAdded()) return;
+                    addAiBubble("查询历史记录数量时出错，请稍后重试。");
+                });
+            }
+        }, "history-stats").start();
+        return true;
+    }
+
+    /** 打开历史记录中的指定条目（第N条/最新一条）或某条AI分析 */
+    private boolean openHistoryItemCommand(String userText, String t) {
+        addUserBubble(userText);
+        hideWelcome();
+        input.setText("");
+        final int target = parseOrdinal(t);
+        final boolean wantAi = t.contains("分析") || t.contains("报告");
+        new Thread(() -> {
+            try {
+                List<CaseRepository.CaseRecord> records =
+                        CaseRepository.queryCases(requireContext().getApplicationContext(), 0);
+                final int safeTarget = (target <= 0 || target > records.size()) ? -1 : target;
+                if (safeTarget < 0) {
+                    final String failReply = "目前共有 " + records.size() + " 条案例"
+                            + (target > 0 ? "，没有找到第 " + target + " 条" : "，请说\"第几条\"或\"最新一条\"");
                     mainHandler.post(() -> {
                         if (!isAdded()) return;
                         addAiBubble(failReply);
