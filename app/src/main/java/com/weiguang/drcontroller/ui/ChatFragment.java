@@ -99,8 +99,8 @@ public class ChatFragment extends Fragment {
     private String pendingFullReportCaseId;
 
     private static final String API_KEY = BuildConfig.DEEPSEEK_API_KEY;
-    private static final String API_URL = "https://api.deepseek.com/v1/chat/completions";
-    private static final String MODEL = "deepseek-chat";
+    private static final String API_URL = "https://api.deepseek.com/chat/completions";
+    private static final String MODEL = "deepseek-flash";
     // 上下文滑动窗口：除 system 外最多保留最近 20 条对话，防止无限增长导致 DeepSeek token 超限
     private static final int MAX_CONTEXT_MESSAGES = 20;
 
@@ -2454,6 +2454,18 @@ public class ChatFragment extends Fragment {
 
                 @Override
                 public void onResponse(Call call, Response response) {
+                    if (!response.isSuccessful()) {
+                        int statusCode = response.code();
+                        String errorBody = "";
+                        try {
+                            errorBody = response.body() == null ? "" : response.body().string();
+                        } catch (IOException ignored) {
+                        } finally {
+                            response.close();
+                        }
+                        handleStreamHttpFailure(statusCode, errorBody);
+                        return;
+                    }
                     StringBuilder full = new StringBuilder();
                     // 工具调用增量累积（DeepSeek 流式把 tool_calls 分成多段 delta）
                     String[] toolIds = new String[4];
@@ -2519,6 +2531,9 @@ public class ChatFragment extends Fragment {
                                 streamingView.setText("读取回复失败：" + e.getMessage());
                             }
                         });
+                    }
+                    } finally {
+                        response.close();
                     }
 
                     // 取第一个工具调用（DeepSeek 单轮一般只返回一个）
@@ -2643,6 +2658,37 @@ public class ChatFragment extends Fragment {
                 wakeState = WSTATE_LISTEN;
                 statusText.setText("● 在线");
                 statusText.setTextColor(Color.parseColor("#70D69B"));
+            }
+        });
+    }
+
+    private void handleStreamHttpFailure(int statusCode, String body) {
+        String detail = "";
+        try {
+            JSONObject error = new JSONObject(body).optJSONObject("error");
+            if (error != null) detail = error.optString("message", "");
+        } catch (Exception ignored) {
+        }
+        if (detail.isEmpty()) detail = body == null ? "" : body.trim();
+        if (detail.length() > 500) detail = detail.substring(0, 500);
+        final String message = "小农请求失败（HTTP " + statusCode + "）"
+                + (detail.isEmpty() ? "，请检查 API 配置后重试。" : "：" + detail);
+        streaming = false;
+        mainHandler.post(() -> {
+            stopThinking();
+            setUiBusy(false);
+            if (streamingView != null) streamingView.setText(message);
+            if (statusText != null) {
+                statusText.setText("● 请求失败");
+                statusText.setTextColor(Color.parseColor("#FF8A80"));
+            }
+            if (wakeSessionActive) {
+                wakeSessionActive = false;
+                wakeState = WSTATE_LISTEN;
+                if (statusText != null) {
+                    statusText.setText("● 在线");
+                    statusText.setTextColor(Color.parseColor("#70D69B"));
+                }
             }
         });
     }
@@ -2782,7 +2828,15 @@ public class ChatFragment extends Fragment {
                             final String res = "已打开第" + safe + "条" + (wantAi ? "的分析报告" : "历史记录")
                                     + "（" + label + "）" + (rec.hasAiReport() ? "，该案例已有AI分析报告" : "");
                             mainHandler.post(() -> {
-                                if (fma != null) fma.openCaseDetail(caseId);
+                                if (fma != null) {
+                                    if (wantAi && rec.hasAiReport()) {
+                                        fma.openAiReport(caseId);
+                                    } else if (wantAi) {
+                                        fma.openAiForCase(caseId);
+                                    } else {
+                                        fma.openCaseDetail(caseId);
+                                    }
+                                }
                                 sendFinalStream(buildToolResultMessage(toolId, res));
                             });
                         } catch (Exception ex) {
@@ -2832,6 +2886,18 @@ public class ChatFragment extends Fragment {
 
                 @Override
                 public void onResponse(Call call, Response response) {
+                    if (!response.isSuccessful()) {
+                        int statusCode = response.code();
+                        String errorBody = "";
+                        try {
+                            errorBody = response.body() == null ? "" : response.body().string();
+                        } catch (IOException ignored) {
+                        } finally {
+                            response.close();
+                        }
+                        handleStreamHttpFailure(statusCode, errorBody);
+                        return;
+                    }
                     StringBuilder full = new StringBuilder();
                     try {
                         BufferedReader reader = new BufferedReader(
@@ -2871,6 +2937,9 @@ public class ChatFragment extends Fragment {
                                 streamingView.setText("读取回复失败：" + e.getMessage());
                             }
                         });
+                    }
+                    } finally {
+                        response.close();
                     }
                     mainHandler.post(() -> finishStream(full.toString()));
                 }
