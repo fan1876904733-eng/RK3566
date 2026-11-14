@@ -5,6 +5,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 
 import com.weiguang.drcontroller.hardware.storage.CaseRepository;
@@ -39,6 +41,7 @@ public final class AiAnalyzer {
     }
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private AiAnalyzer() {
     }
@@ -63,7 +66,7 @@ public final class AiAnalyzer {
             try {
                 List<DeepSeekClient.ImageInput> imageInputs = buildImageInputs(appContext, record);
                 if (imageInputs.isEmpty()) {
-                    callback.onError("案例中没有可读取的影像，请重新拍摄后再分析");
+                    MAIN.post(() -> callback.onError("案例中没有可读取的影像，请重新拍摄后再分析"));
                     return;
                 }
                 String systemPrompt = buildSystemPrompt();
@@ -94,8 +97,9 @@ public final class AiAnalyzer {
                         }
                 );
             } catch (Throwable t) {
-                callback.onError(t.getMessage() == null || t.getMessage().trim().isEmpty()
-                        ? t.getClass().getSimpleName() : t.getMessage().trim());
+                String error = t.getMessage() == null || t.getMessage().trim().isEmpty()
+                        ? t.getClass().getSimpleName() : t.getMessage().trim();
+                MAIN.post(() -> callback.onError(error));
             }
         });
     }

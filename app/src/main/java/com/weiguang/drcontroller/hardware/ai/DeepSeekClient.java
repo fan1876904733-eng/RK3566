@@ -23,7 +23,7 @@ import okhttp3.Response;
 /**
  * DeepSeek 通用对话客户端（非流式）。
  *
- * - chat()：纯文本对话，使用 deepseek-chat
+ * - chat()：纯文本对话，使用 deepseek-flash
  * - chatWithImages()：图文混合（多模态），使用 deepseek-flash，
  *   图片以 base64 data URL 内联传入（格式见官方"图像理解"文档）
  * Key 统一取自 BuildConfig，维护位置：app/build.gradle.kts buildConfigField。
@@ -60,7 +60,7 @@ public final class DeepSeekClient {
                 .build();
     }
 
-    /** 纯文本对话（deepseek-chat），结果在主线程回调。 */
+    /** 纯文本对话（deepseek-flash），结果在主线程回调。 */
     public void chat(String systemPrompt, String userText, Callback callback) {
         post(systemPrompt, userText, null, MODEL_TEXT, callback);
     }
@@ -169,6 +169,10 @@ public final class DeepSeekClient {
                                 .getJSONObject("message")
                                 .getString("content");
                         String finalReply = reply == null ? "" : reply.trim();
+                        if (finalReply.isEmpty()) {
+                            postError(callback, "AI服务返回空报告，请重试。");
+                            return;
+                        }
                         mainHandler.post(() -> callback.onSuccess(finalReply));
                     } catch (Exception e) {
                         postError(callback, "解析错误：" + safeMessage(e));

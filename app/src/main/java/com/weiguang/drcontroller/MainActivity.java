@@ -789,6 +789,28 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
+    /** The visible case, including a selection made with the AI page spinner. */
+    public String getCurrentCaseId() {
+        if (currentPageFragment instanceof AiFragment) {
+            return ((AiFragment) currentPageFragment).getSelectedCaseId();
+        }
+        if (currentPageFragment != null && currentPageFragment.getArguments() != null) {
+            return currentPageFragment.getArguments().getString("case_id");
+        }
+        return null;
+    }
+
+    public void navigateUpByCommand() {
+        if (currentPageFragment instanceof AiReportFragment) {
+            openAiForCase(getCurrentCaseId());
+        } else if (currentPageFragment instanceof CaseDetailFragment
+                || currentPageFragment instanceof AiFragment) {
+            openHistoryPage();
+        } else {
+            openHomePageByCommand();
+        }
+    }
+
     public void openAiReport(String caseId) {
         openPage(
                 AiReportFragment.newInstance(caseId),
@@ -842,6 +864,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** 语音指令"同时拍照"：打开摄像头页并自动拍一张（实时图+热成像） */
     public void capturePairedPhotoByCommand() {
+        long now = System.currentTimeMillis();
+        if (now - lastCaptureCommandMs < 6000L) return; // 同一句话被重复识别时只拍一次
+        lastCaptureCommandMs = now;
         PreviewFragment preview = new PreviewFragment(true);
         // 记录最近一次拍摄的案例 ID，供小农"刚才那条"多轮指令打开
         preview.setCaseCaptureListener((caseId, timeMillis) -> lastCapturedCaseId = caseId);
@@ -870,6 +895,26 @@ public class MainActivity extends AppCompatActivity {
 
     private String lastCapturedCaseId;
 
+    /** 拍照指令冷却，避免同一句语音被重复识别后连拍多组 */
+    private volatile long lastCaptureCommandMs = 0L;
+
+    /** 一键全检（拍摄+AI分析）是否正在执行，供小农判断能否立刻接新任务 */
+    private volatile boolean inspectionRunning;
+    /** 任务代次：停止任务后自增，旧任务的拍摄/AI回调据此直接丢弃 */
+    private volatile int taskGeneration = 0;
+
+    public boolean isInspectionRunning() {
+        return inspectionRunning;
+    }
+
+    /** 语音"停止当前任务"：中止一键全检的拍摄与分析，回到小农助手页 */
+    public void stopCurrentTask() {
+        taskGeneration++;
+        inspectionRunning = false;
+        openChatPage();
+        Toast.makeText(this, "已停止当前任务", Toast.LENGTH_SHORT).show();
+    }
+
     /** 最近一次拍摄（同时拍照/一键全检）生成的案例 ID；没有则为 null */
     public String getLastCapturedCaseId() {
         return lastCapturedCaseId;
@@ -883,15 +928,20 @@ public class MainActivity extends AppCompatActivity {
      * @param userHint 用户对拍摄目标的口语描述（可为空），作为分析的辅助参考
      */
     public void runFullInspectionByCommand(String userHint) {
+        if (inspectionRunning) return; // 全检进行中不重复启动
+        inspectionRunning = true;
+        final int generation = ++taskGeneration;
         PreviewFragment preview = new PreviewFragment(true);
         final String hint = userHint == null ? "" : userHint.trim();
         preview.setCaseCaptureListener(new PreviewFragment.CaseCaptureListener() {
             @Override
             public void onPairedCaseSaved(String caseId, long timeMillis) {
+                if (generation != taskGeneration) return; // 任务已被"停止"指令作废
                 lastCapturedCaseId = caseId;
                 if (chatFragment != null) chatFragment.notifyInspectionStarted(caseId);
                 CaseRepository.CaseRecord record = CaseRepository.findCase(getApplicationContext(), caseId);
                 if (record == null) {
+                    inspectionRunning = false;
                     if (chatFragment != null) chatFragment.notifyInspectionError("案例读取失败，无法开始分析", false);
                     return;
                 }
@@ -902,11 +952,15 @@ public class MainActivity extends AppCompatActivity {
                         new AiAnalyzer.Callback() {
                             @Override
                             public void onSuccess(String report) {
+                                if (generation != taskGeneration) return; // 已停止：丢弃本次分析结果
+                                inspectionRunning = false;
                                 if (chatFragment != null) chatFragment.notifyInspectionDone(caseId, report);
                             }
 
                             @Override
                             public void onError(String error) {
+                                if (generation != taskGeneration) return;
+                                inspectionRunning = false;
                                 if (chatFragment != null) chatFragment.notifyInspectionError(error, true);
                                 // 自动补救：跳到 AI 分析页并选中该案例，提供手动重试入口
                                 openAiForCase(caseId);
@@ -917,6 +971,8 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onAutoCaptureFailed(String message) {
+                if (generation != taskGeneration) return;
+                inspectionRunning = false;
                 if (chatFragment != null) {
                     chatFragment.notifyInspectionError(message + "，请检查热成像连接后重试", false);
                 }
@@ -949,6 +1005,14 @@ public class MainActivity extends AppCompatActivity {
                 "目标状态、距离、呼吸、心率与最近60秒趋势",
                 RadarPanelMode.HIDDEN
         );
+    }
+
+    /** 语音指令"打开毫米波雷达"：跳到雷达详情页，未连接时同时发起连接 */
+    public void openRadarPageByCommand() {
+        openRadarDetailPage();
+        if (!getLatestRadarReading().isConnected()) {
+            connectRadarByCommand();
+        }
     }
 
     public void openExposurePreparePage() {
@@ -1273,6 +1337,10 @@ public class MainActivity extends AppCompatActivity {
                 renderRadarReading(latestRadarReading);
             }
             refreshHomeStatusCards();
+            // 失败原因必须让用户看见，否则页面只会停在"待连接"，无法判断是没插、没授权还是打不开
+            if (message != null && !message.trim().isEmpty()) {
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+            }
         });
     }
 

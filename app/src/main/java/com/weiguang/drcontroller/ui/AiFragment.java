@@ -153,6 +153,12 @@ public class AiFragment extends Fragment {
         viewReportButton.setEnabled(record.hasAiReport());
     }
 
+    public String getSelectedCaseId() {
+        int position = caseSpinner == null ? -1 : caseSpinner.getSelectedItemPosition();
+        return position >= 0 && position < cases.size()
+                ? cases.get(position).getCaseId() : requestedCaseId;
+    }
+
     private void openSelectedReport() {
         int position = caseSpinner.getSelectedItemPosition();
         if (position < 0 || position >= cases.size()) return;
