@@ -46,8 +46,8 @@ public final class DeepSeekClient {
         void onError(String error);
     }
 
-    private static final String API_URL = "https://api.deepseek.com/v1/chat/completions";
-    private static final String MODEL_TEXT = "deepseek-chat";
+    private static final String API_URL = "https://api.deepseek.com/chat/completions";
+    private static final String MODEL_TEXT = "deepseek-flash";
     private static final String MODEL_VISION = "deepseek-flash";
 
     private final OkHttpClient client;
@@ -89,6 +89,11 @@ public final class DeepSeekClient {
             Callback callback
     ) {
         try {
+            if (BuildConfig.DEEPSEEK_API_KEY == null
+                    || BuildConfig.DEEPSEEK_API_KEY.trim().isEmpty()) {
+                postError(callback, "未配置 DeepSeek API Key，请在本机 local.properties 中设置后重新构建。");
+                return;
+            }
             JSONArray messages = new JSONArray();
 
             JSONObject system = new JSONObject();
@@ -130,6 +135,9 @@ public final class DeepSeekClient {
             reqBody.put("max_tokens", 1200);
             reqBody.put("stream", false);
             reqBody.put("temperature", 0.3);
+            JSONObject thinking = new JSONObject();
+            thinking.put("type", "disabled");
+            reqBody.put("thinking", thinking);
 
             Request request = new Request.Builder()
                     .url(API_URL)
