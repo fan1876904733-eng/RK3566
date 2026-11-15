@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.weiguang.drcontroller.navigationcheck">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+    <application android:label="Voice report device check" android:debuggable="true" />
+    <instrumentation
+        android:name="com.weiguang.drcontroller.navigationcheck.VoiceReportDeviceCheck"
+        android:targetPackage="com.weiguang.drcontroller" />
+</manifest>

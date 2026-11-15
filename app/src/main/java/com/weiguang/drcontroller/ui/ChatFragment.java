@@ -775,8 +775,7 @@ public class ChatFragment extends Fragment {
             case ASSISTANT: return doDeviceCommand(text, "已打开小农助手。", activity::openChatPage);
             case BACK: return doDeviceCommand(text, "已返回上一级。", activity::navigateUpByCommand);
             case AI:
-                if (parseOrdinal(normalized) < 0 && !containsAny(normalized,
-                        "当前", "这条", "这个", "刚才", "刚刚", "选中", "已选")) {
+                if (!VoiceCommandRouter.referencesCase(normalized)) {
                     return doDeviceCommand(text, "已打开AI分析页面。", activity::openAiAnalysisPageByCommand);
                 }
                 // An explicit case reference opens that case's analysis page.
@@ -794,6 +793,12 @@ public class ChatFragment extends Fragment {
                 }
                 if (action == VoiceCommandRouter.Action.REPORT && record.hasAiReport()) {
                     return doDeviceCommand(text, "已打开分析报告。", () -> activity.openAiReport(caseId));
+                }
+                if (action == VoiceCommandRouter.Action.REPORT) {
+                    pendingAnalysisCaseId = caseId;
+                    return doDeviceCommand(text,
+                            "这条历史记录还没有AI分析报告。需要我现在分析，完成后为你读取吗？",
+                            () -> activity.openAiForCase(caseId));
                 }
                 return doDeviceCommand(text, record.hasAiReport() ? "已打开该案例的分析页面。"
                                 : "该案例还没有报告，已打开分析页面，可以说开始分析。",

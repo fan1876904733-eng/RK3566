@@ -41,11 +41,15 @@ public final class VoiceCommandRouter {
         if (capture || has(t, "读取", "朗读", "读一下", "念一下", "选择", "只拍", "开始曝光")) {
             return Action.NONE;
         }
-        boolean caseReference = has(t, "第", "最新", "最近", "刚才", "刚刚", "这条", "那条",
-                "当前", "这个", "那个", "已选", "选中", "案例详情", "案例影像");
+        boolean caseReference = hasSpecificCaseReference(t);
         if ((navigation || t.equals("查询")) && has(t, "报告", "分析结果")) return Action.REPORT;
+        // Viewing a case's "AI analysis" means its saved report. Only an explicit
+        // request for the analysis page opens the case-selection/analysis form.
+        if (navigation && analysis && referencesCase(t)) {
+            return has(t, "分析页面", "分析界面", "分析页") ? Action.AI : Action.REPORT;
+        }
         if (navigation && caseReference && has(t, "案例", "记录", "影像", "分析")) {
-            return analysis ? Action.AI : Action.CASE_DETAIL;
+            return Action.CASE_DETAIL;
         }
         if (!navigation && !t.endsWith("页面") && !t.endsWith("界面")) return Action.NONE;
         if (has(t, "热成像", "热传感", "热感", "热像", "红外")) return Action.THERMAL;
@@ -58,6 +62,19 @@ public final class VoiceCommandRouter {
         if (has(t, "助手", "小农", "对话", "聊天")) return Action.ASSISTANT;
         if (has(t, "首页", "主页", "主界面")) return Action.HOME;
         return Action.NONE;
+    }
+
+    /** Shared with the dispatcher so case selection is not lost for time/latest references. */
+    public static boolean referencesCase(String text) {
+        String t = normalize(text);
+        return hasSpecificCaseReference(t) || has(t, "历史记录", "历史案例");
+    }
+
+    private static boolean hasSpecificCaseReference(String t) {
+        return has(t, "第", "最新", "最近", "最后", "刚才", "刚刚", "刚拍", "这条", "那条",
+                "某条", "上一条", "上次", "当前", "这个", "那个", "已选", "选中",
+                "案例详情", "案例影像", "今天", "昨天", "前天", "上周", "本周", "这周")
+                || t.matches(".*\\d{1,2}月\\d{1,2}[日号].*");
     }
 
     private static boolean has(String text, String... terms) {
