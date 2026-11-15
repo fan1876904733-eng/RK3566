@@ -19,6 +19,10 @@ public final class VoiceCommandRouter {
 
     public static Action match(String text) {
         String t = normalize(text);
+        if (has(t, "报告", "分析") && has(t, "读", "念", "播报")
+                && !has(t, "怎么", "如何", "为什么", "不要", "取消", "拍照", "生成")) {
+            return Action.NONE;
+        }
         if (has(t, "怎么", "如何", "为什么", "有没有", "多少", "几条")) {
             return Action.NONE;
         }

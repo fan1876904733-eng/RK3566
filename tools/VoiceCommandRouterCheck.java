@@ -79,6 +79,10 @@ public final class VoiceCommandRouterCheck {
         check("关闭射线源", NONE);
         check("读取当前分析报告", NONE);
         check("读取第一条历史记录的AI分析", NONE);
+        check("帮我打开第一条历史记录的AI分析报告并帮我读出来", NONE);
+        check("帮我念第一条历史记录的报告", NONE);
+        check("播报第二条的AI分析报告", NONE);
+        check("开始读取第一条的分析报告", NONE);
         check("打开第二条历史记录并进行AI分析", ANALYZE);
         check("你好", NONE);
         check(null, NONE);

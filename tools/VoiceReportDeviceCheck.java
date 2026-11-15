@@ -109,6 +109,7 @@ public final class VoiceReportDeviceCheck extends Instrumentation {
             if (field(chat, "analysisRunning").getBoolean(chat)) {
                 throw new AssertionError("Opening reports unexpectedly started a cloud analysis");
             }
+            checkReading(activity, chat, command, prefix, caseId);
             onUi(() -> activity.getClass().getMethod("openChatPage").invoke(activity));
         } finally {
             SharedPreferences.Editor editor = prefs.edit();
@@ -141,6 +142,57 @@ public final class VoiceReportDeviceCheck extends Instrumentation {
     }
 
     private interface UiStep { void run() throws Exception; }
+
+    private void checkReading(Activity activity, Object chat, Method command,
+                              String prefix, String caseId) throws Exception {
+        // Hold the audio queue to inspect real speech text without playing or uploading it.
+        onUi(() -> {
+            field(chat, "pendingAnalysisCaseId").set(chat, null);
+            field(chat, "ttsEnabled").setBoolean(chat, true);
+            field(chat, "ttsPlaying").setBoolean(chat, true);
+            command.invoke(chat, "帮我打开" + prefix + "的AI分析报告，并帮我读出来");
+        });
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!caseId.equals(field(chat, "pendingFullReportCaseId").get(chat))
+                && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        onUi(() -> {
+            if (!caseId.equals(field(chat, "pendingFullReportCaseId").get(chat)))
+                throw new AssertionError("Read request did not prepare spoken summary and follow-up");
+            java.util.ArrayDeque<?> queue = (java.util.ArrayDeque<?>) field(chat, "ttsQueue").get(chat);
+            if (queue.isEmpty()) throw new AssertionError("Report summary was never queued for speech");
+            String summary = (String) field(queue.peekLast(), "spoken").get(queue.peekLast());
+            if (summary.contains("简要结果已经生成")) throw new AssertionError("Summary has no report content");
+            field(chat, "lastSpokenReply").set(chat, summary);
+            field(chat, "lastSpokenReplyEndMs").setLong(chat, System.currentTimeMillis());
+            Method send = chat.getClass().getDeclaredMethod("sendMessage", String.class);
+            send.setAccessible(true);
+            int before = queue.size();
+            send.invoke(chat, "需要。");
+            if (field(chat, "pendingFullReportCaseId").get(chat) != null || queue.size() <= before)
+                throw new AssertionError("Affirmative reply was discarded instead of queuing full report");
+            Method stop = chat.getClass().getDeclaredMethod("stopTts");
+            stop.setAccessible(true);
+            stop.invoke(chat);
+            field(chat, "ttsEnabled").setBoolean(chat, false);
+        });
+        checked += 3;
+        Method download = chat.getClass().getDeclaredMethod("downloadTtsAudio", String.class);
+        download.setAccessible(true);
+        // Only this fixed, non-sensitive sentence is sent to the speech provider.
+        byte[] audio = (byte[]) download.invoke(chat, "语音播放测试。");
+        if (audio.length < 1000) throw new AssertionError("TTS did not return report audio");
+        java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
+        onUi(() -> {
+            Method play = chat.getClass().getDeclaredMethod("playTtsAudio", byte[].class, Runnable.class);
+            play.setAccessible(true);
+            play.invoke(chat, audio, (Runnable) finished::countDown);
+            android.media.MediaPlayer player = (android.media.MediaPlayer) field(chat, "ttsPlayer").get(chat);
+            if (player == null || !player.isPlaying()) throw new AssertionError("Report audio did not start playing");
+        });
+        if (!finished.await(40, java.util.concurrent.TimeUnit.SECONDS))
+            throw new AssertionError("Report audio playback did not complete");
+        checked++;
+    }
 
     private void onUi(UiStep step) {
         Throwable[] failure = {null};

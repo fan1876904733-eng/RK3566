@@ -430,9 +430,13 @@ public class ChatFragment extends Fragment {
         // 过滤小农自己的播报回声：刚播完 6 秒内，识别内容与刚播内容高度重合就丢弃。
         // 拍照回声通常是一整句（如"同时拍照保存实时图和热成像图请稍候"），
         // 不能只看短句，否则会漏过去又触发一次拍照。
-        if (lastSpokenReply != null && nowMs - lastSpokenReplyEndMs < 6000L
+        String replyText = VoiceCommandRouter.normalize(text);
+        boolean expectedReply = (pendingAnalysisCaseId != null || pendingFullReportCaseId != null
+                || pendingDeleteCaseId != null) && (isAffirmative(replyText) || isNegative(replyText));
+        if (!expectedReply && lastSpokenReply != null && nowMs - lastSpokenReplyEndMs < 6000L
                 && isEchoOfLastReply(text)) {
             Log.d("WG-VOICE", "回声已忽略: " + text);
+            if (!ttsPlaying && !streaming) wakeState = WSTATE_LISTEN;
             return;
         }
         lastExecutedCommand = text;
@@ -557,7 +561,7 @@ public class ChatFragment extends Fragment {
                 || t.contains("第") || t.contains("那条") || t.contains("这条"))) {
             return requestRenameCase(text, t);
         }
-        if ((t.contains("读取") || t.contains("朗读") || t.contains("念一下") || t.contains("读一下"))
+        if ((t.contains("读") || t.contains("念") || t.contains("播报"))
                 && (t.contains("分析") || t.contains("报告"))) {
             return readCaseReportCommand(text, t);
         }
@@ -922,6 +926,9 @@ public class ChatFragment extends Fragment {
     }
 
     private static boolean isAffirmative(String t) {
+        if (isNegative(t)) return false;
+        if (t.equals("继续") || t.equals("继续读") || t.equals("接着读")
+                || t.equals("读吧") || t.equals("好") || t.equals("全文朗读")) return true;
         return t.equals("需要") || t.equals("要") || t.equals("是") || t.equals("确认")
                 || t.contains("需要分析") || t.contains("开始分析") || t.contains("帮我分析")
                 || t.contains("可以") || t.contains("好的");
@@ -1162,7 +1169,6 @@ public class ChatFragment extends Fragment {
         if (report == null || report.trim().isEmpty()) return;
         String plain = stripEmoji(report).replaceAll("[*#`]+", "")
                 .replaceAll("\\s+", " ").trim();
-        if (plain.length() > 1800) plain = plain.substring(0, 1800) + "。其余内容请在报告页面查看";
         List<String> chunks = new java.util.ArrayList<>();
         while (!plain.isEmpty()) {
             int end = Math.min(180, plain.length());
@@ -3449,7 +3455,15 @@ public class ChatFragment extends Fragment {
                 return ensureSentence("分析完成，" + line);
             }
         }
-        return "分析完成，简要结果已经生成。";
+        // Older reports may have no standard conclusion heading. Read actual body text.
+        for (String raw : lines) {
+            String line = raw.replaceAll("[*#`]+", "").replaceFirst("^[\\-*>\\d.、\\s]+", "").trim();
+            if (line.length() < 8 || line.contains("检测时间") || line.contains("基本信息")
+                    || line.contains("检测分析报告") || line.contains("仅供") || line.contains("免责声明")) continue;
+            if (line.length() > 120) line = line.substring(0, 120);
+            return ensureSentence("报告要点是，" + line);
+        }
+        return "这份报告没有可概括的正文，可以继续读取完整内容。";
     }
 
     private String ensureSentence(String text) {
