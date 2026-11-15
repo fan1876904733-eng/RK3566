@@ -63,12 +63,18 @@ public class ExposurePrepareFragment extends Fragment {
         exposureDurationText = view.findViewById(R.id.exposureDurationText);
         decreaseExposureButton = view.findViewById(R.id.decreaseExposureButton);
         increaseExposureButton = view.findViewById(R.id.increaseExposureButton);
+        android.content.SharedPreferences saved = requireContext().getSharedPreferences("exposure_preparation", 0);
+        exposureDurationMs = saved.getLong("duration_ms", 500L);
+        cameraCheck.setChecked(saved.getBoolean("camera", false));
+        thermalCheck.setChecked(saved.getBoolean("thermal", false));
+        xrayCheck.setChecked(saved.getBoolean("xray", true));
         android.widget.CompoundButton.OnCheckedChangeListener selectionListener = (button, checked) -> {
             if (button == xrayCheck && !checked
                     && xrayController.getState() != Xray433Controller.State.MASTER_OFF) {
                 showXrayResult(xrayController.turnMasterOff());
             }
             updateSelectionText();
+            saveSettings();
         };
         cameraCheck.setOnCheckedChangeListener(selectionListener);
         thermalCheck.setOnCheckedChangeListener(selectionListener);
@@ -174,6 +180,20 @@ public class ExposurePrepareFragment extends Fragment {
         exposureDurationMs = Math.max(MIN_EXPOSURE_MS,
                 Math.min(MAX_EXPOSURE_MS, exposureDurationMs + deltaMs));
         updateExposureDurationUi();
+        saveSettings();
+    }
+
+    private void saveSettings() {
+        requireContext().getSharedPreferences("exposure_preparation", 0).edit()
+                .putLong("duration_ms", exposureDurationMs)
+                .putBoolean("camera", cameraCheck.isChecked())
+                .putBoolean("thermal", thermalCheck.isChecked())
+                .putBoolean("xray", xrayCheck.isChecked()).apply();
+    }
+
+    public String captureByCommand() {
+        startSelectedCapture();
+        return exposureResultText.getText().toString();
     }
 
     private void updateExposureDurationUi() {

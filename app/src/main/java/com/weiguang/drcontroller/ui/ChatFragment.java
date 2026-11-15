@@ -490,6 +490,16 @@ public class ChatFragment extends Fragment {
         MainActivity ma = (MainActivity) getActivity();
         String t = VoiceCommandRouter.normalize(text);
 
+        if (ExposureVoiceCommand.isTimeSetting(t)) {
+            long millis = ExposureVoiceCommand.parseMillis(text);
+            String result = ma.setExposureDurationByCommand(millis);
+            return doDeviceCommand(text, result, () -> { });
+        }
+        if (ExposureVoiceCommand.isSelectedCapture(t)) {
+            String result = ma.captureSelectedModulesByCommand();
+            return doDeviceCommand(text, result, () -> { });
+        }
+
         // ===== 停止当前任务（拍摄 / 全检 / AI分析） =====
         if (isStopTaskCommand(t)) {
             analysisGeneration++;
@@ -696,8 +706,8 @@ public class ChatFragment extends Fragment {
             addUserBubble(text);
             hideWelcome();
             input.setText("");
-            long exposureMillis = parseExposureMillis(t);
-            if (exposureMillis < 0) exposureMillis = 500L;
+            long exposureMillis = ExposureVoiceCommand.parseMillis(text);
+            if (exposureMillis < 0) exposureMillis = ma.getSelectedExposureDuration();
             com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
                     ma.startXrayExposureByCommand(exposureMillis);
             addAiBubble(result.message);

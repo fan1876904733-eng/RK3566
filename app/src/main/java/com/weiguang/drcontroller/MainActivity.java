@@ -1032,6 +1032,25 @@ public class MainActivity extends AppCompatActivity {
         fragment.setSelectedModules(camera, thermal, xray);
     }
 
+    public String setExposureDurationByCommand(long millis) {
+        if (!com.weiguang.drcontroller.ui.ExposureVoiceCommand.isValid(millis))
+            return "曝光时间请设为0.30到0.70秒，每次调整0.05秒。";
+        getSharedPreferences("exposure_preparation", 0).edit().putLong("duration_ms", millis).apply();
+        openExposurePreparePage();
+        return String.format(java.util.Locale.CHINA, "曝光时间已设为%.2f秒。", millis / 1000.0);
+    }
+
+    public long getSelectedExposureDuration() {
+        return getSharedPreferences("exposure_preparation", 0).getLong("duration_ms", 500L);
+    }
+
+    public String captureSelectedModulesByCommand() {
+        com.weiguang.drcontroller.ui.ExposurePrepareFragment fragment =
+                new com.weiguang.drcontroller.ui.ExposurePrepareFragment();
+        openPage(fragment, exposurePrepareButton, "准备曝光", "选择模块并开始采集", RadarPanelMode.HIDDEN);
+        return fragment.captureByCommand();
+    }
+
     public com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult startXrayExposureByCommand(int seconds) {
         return startXrayExposureByCommand(seconds * 1000L);
     }
