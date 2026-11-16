@@ -128,6 +128,8 @@ public class ChatFragment extends Fragment {
     // TTS 播放队列：连续播报排队串行播放，不再互相打断
     private final java.util.ArrayDeque<TtsTask> ttsQueue = new java.util.ArrayDeque<>();
     private boolean ttsPlaying = false;
+    private int speechEpoch = 0;
+    private long speechEndedMs = 0L;
     private int ttsGeneration = 0;
     private final ConcurrentHashMap<String, byte[]> shortTtsCache = new ConcurrentHashMap<>();
 
@@ -149,13 +151,15 @@ public class ChatFragment extends Fragment {
     private static final String PREF_VOICE = "xiaonong_voice";
     private static final String PREF_WAKE_ENABLED = "wake_enabled";
     private AudioRecord wakeRecorder;
+    private android.media.audiofx.NoiseSuppressor wakeNoiseSuppressor;
+    private android.media.audiofx.AcousticEchoCanceler wakeEchoCanceler;
     private Thread wakeThread;
     private ByteArrayOutputStream wakeBuffer;
     private int silentFrames = 0;
     private int wakeAboveFrames = 0;
     private int wakeVoicedFrames = 0;
     private int wakeSegmentFrames = 0;
-    private int questionVoicedFrames = 0;
+    private volatile int questionVoicedFrames = 0;
     private int consecutiveSilentWakeCount = 0;
     private double wakeNoiseFloor = 100.0;
     private final ArrayDeque<byte[]> wakePreRoll = new ArrayDeque<>();
@@ -177,6 +181,7 @@ public class ChatFragment extends Fragment {
     private static final long QUESTION_RESPONSE_GRACE_MS = 1600L; // “我在”播完后留出开口时间
     private static final long QUESTION_TTS_TAIL_MS = 250L; // 忽略扬声器尾音，避免把“我在”识别成问题
     private static final int SILENT_WAKE_HELP_THRESHOLD = 3;
+    private static final long FOLLOW_UP_SILENCE_EXIT_MS = 15000L; // 等待开口15秒；开口后按句尾静音结束
     private static final int WAKE_PRE_ROLL_FRAMES = 6; // 保留240ms前导音，避免吞掉“小”
     private static final String[] WAKE_WORD_ALIASES = {
             "小农", "小浓", "晓农", "晓浓", "小侬", "晓侬",
@@ -196,6 +201,25 @@ public class ChatFragment extends Fragment {
     private long wakeTtsStartMs = 0;   // 唤醒成功瞬间（开始录音）
     private long wakeTtsDoneMs = 0;    // "我在"播完瞬间
     private volatile int wakeTrimPoint = -1; // "我在"播完时录音缓冲字节切点
+    private volatile long wakeFollowUpDeadlineMs = 0L; // 连续聆听窗口的静音截止时间
+    private final Runnable followUpCountdown = new Runnable() {
+        @Override public void run() {
+            if (!isAdded() || !wakeEnabled || wakeState != WSTATE_RECORD || wakeFollowUpDeadlineMs == 0) return;
+            long seconds = Math.max(0, (wakeFollowUpDeadlineMs - System.currentTimeMillis() + 999) / 1000);
+            String label = questionVoicedFrames > 0 ? "● 正在听你说话…" : "● 继续聆听 " + seconds + " 秒，可直接说";
+            statusText.setText(label);
+            if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).showVoiceStatus(label);
+            if (seconds > 0 || questionVoicedFrames > 0) mainHandler.postDelayed(this, 250L);
+        }
+    };
+    private volatile String pendingTaskCommand = null; // 任务执行中排队等待的拍摄类指令
+    private volatile boolean pendingExecuting = false; // 正在执行排队指令，避免再次入队
+    private String lastExecutedCommand = null; // 上一条已执行的指令，用于3秒内去重
+    private long lastExecutedCommandMs = 0L;
+    private String lastSpokenReply = null; // 刚播报完的回复，用于过滤麦克风收到的自身回声
+    private long lastSpokenReplyEndMs = 0L;
+    private int analysisGeneration;
+    private volatile boolean analysisRunning = false; // AI 分析进行中，避免重复发起
 
     private final Runnable voiceTimeout = () -> {
         if (voiceRecording) {
@@ -237,7 +261,7 @@ public class ChatFragment extends Fragment {
         try {
             JSONObject systemMsg = new JSONObject();
             systemMsg.put("role", "system");
-            systemMsg.put("content", "你是小农，一个自然、亲切的智能助手，运行在微光智造手持智能DR设备上。你可以像正常人一样自然回答任何问题——闲聊、常识、知识、建议都可以，不要刻意反复强调自己的身份或设备功能，也不要每次都以\"我是设备助手\"开头。只有在用户询问设备操作、设备状态或希望控制设备时，才以简洁步骤说明并主动引导。设备支持：摄像头拍照（实时图+热成像同时拍照）、热成像、毫米波雷达（HLK-LD6002，可测距离/呼吸/心率）、X-Ray影像拍摄与历史记录、WiFi传图。当用户要求打开/调取某条历史记录的AI分析报告时，应直接打开该条目的分析详情页，而不是只打开历史记录列表页。回复支持Markdown格式（加粗、列表、代码块）。");
+            systemMsg.put("content", "你是小农，一个自然、亲切的智能助手，运行在微光智造手持智能DR设备上。你可以像正常人一样自然回答任何问题——闲聊、常识、知识、建议都可以，不要刻意反复强调自己的身份或设备功能，也不要每次都以\"我是设备助手\"开头。只有在用户询问设备操作、设备状态或希望控制设备时，才以简洁步骤说明并主动引导。设备支持：摄像头拍照（实时图+热成像同时拍照）、热成像、毫米波雷达（HLK-LD6002，可测距离/呼吸/心率）、准备曝光（X-Ray采集模块选择与曝光）、X-Ray影像拍摄与历史记录、WiFi传图。当用户要求打开/调取某条历史记录的AI分析报告时，应直接打开该条目的分析详情页，而不是只打开历史记录列表页。用户说\"打开/进入/切到/看下+页面名\"时（包括毫米波雷达页面、准备曝光页面），必须调用 open_page 真正跳转页面，不能只口头答应。用户说\"帮我分析一下/分析这张/看看刚才拍的\"时，必须调用 analyze_latest_case 对最近一次拍摄做AI分析，不能只描述流程。回复支持Markdown格式（加粗、列表、代码块）。");
             arr.put(systemMsg);
         } catch (Exception ignored) {}
         return arr;
@@ -311,6 +335,8 @@ public class ChatFragment extends Fragment {
                 Toast.makeText(requireContext(), "小农已开启，请说出你的需求吧。", Toast.LENGTH_SHORT).show();
             } else {
                 stopWakeListening();
+                if (getActivity() instanceof MainActivity)
+                    ((MainActivity) getActivity()).showVoiceStatus("小农已关闭，不再监听");
                 Toast.makeText(requireContext(), "小农已关闭，不再监听唤醒词。", Toast.LENGTH_SHORT).show();
             }
         });
@@ -411,8 +437,55 @@ public class ChatFragment extends Fragment {
         if (text.isEmpty() || streaming) return;
         consecutiveSilentWakeCount = 0;
 
-        // 本地快捷回复
+        // 防重复执行：同一句指令 3 秒内只处理一次。
+        // 语音识别会把同一段话（含回声、尾音）重复回调，导致拍照/全检被执行多次。
+        long nowMs = System.currentTimeMillis();
+        if (text.equals(lastExecutedCommand) && nowMs - lastExecutedCommandMs < 3000L) {
+            return;
+        }
+        // 过滤小农自己的播报回声：刚播完 6 秒内，识别内容与刚播内容高度重合就丢弃。
+        // 拍照回声通常是一整句（如"同时拍照保存实时图和热成像图请稍候"），
+        // 不能只看短句，否则会漏过去又触发一次拍照。
+        String replyText = VoiceCommandRouter.normalize(text);
+        boolean expectedReply = (pendingAnalysisCaseId != null || pendingFullReportCaseId != null
+                || pendingDeleteCaseId != null) && (isAffirmative(replyText) || isNegative(replyText));
+        if (getActivity() instanceof MainActivity
+                && ((MainActivity) getActivity()).isAwaitingInspectionImageDecision()
+                && (replyText.equals("继续") || replyText.equals("继续等待") || replyText.equals("需要")
+                || replyText.equals("不等了") || replyText.equals("不需要") || replyText.equals("是") || replyText.equals("否")))
+            expectedReply = true;
+        if (!expectedReply && lastSpokenReply != null && nowMs - lastSpokenReplyEndMs < 6000L
+                && isEchoOfLastReply(text)) {
+            Log.d("WG-VOICE", "回声已忽略: " + text);
+            if (!ttsPlaying && !streaming) wakeState = WSTATE_LISTEN;
+            return;
+        }
+        lastExecutedCommand = text;
+        lastExecutedCommandMs = nowMs;
+        Log.d("WG-VOICE", "执行指令: " + text);
+
         String lower = text.toLowerCase();
+
+        // 任务执行中（一键全检拍摄/AI分析）：可以随时叫醒小农接新任务
+        if (!pendingExecuting && isInspectionBusy() && !isStopTaskCommand(lower)) {
+            if (containsAny(lower, "取消", "算了", "不测了", "别测了", "停止排队")) {
+                pendingTaskCommand = null;
+                addUserBubble(text);
+                hideWelcome();
+                input.setText("");
+                addAiBubble("好的，已取消排队的新任务；当前任务仍会继续执行完。");
+                speakFollowUpQuestion("好的，已取消排队", "● 继续聆听，可直接说指令");
+                return;
+            } else if (isCaptureTypeCommand(lower)) {
+                pendingTaskCommand = text;
+                input.setText("");
+                addAiBubble("收到，这次任务完成后我马上执行你刚说的新任务。");
+                speakFollowUpQuestion("收到，这次任务做完我马上执行", "● 继续聆听，可直接说指令");
+                return;
+            }
+        }
+
+        // 本地快捷回复
         if (lower.contains("你好") || lower.contains("hi") || lower.contains("hello")) {
             addUserBubble(text);
             hideWelcome();
@@ -436,7 +509,35 @@ public class ChatFragment extends Fragment {
     private boolean tryHandleDeviceCommand(String text) {
         if (getActivity() == null || !(getActivity() instanceof MainActivity)) return false;
         MainActivity ma = (MainActivity) getActivity();
-        String t = text.replaceAll("[\\s，。！？,.!?]", "");
+        String t = VoiceCommandRouter.normalize(text);
+        if (ma.isAwaitingInspectionImageDecision()) {
+            if (t.equals("继续") || t.contains("继续等待") || t.equals("需要") || t.equals("是")
+                    || t.equals("要") || t.equals("好") || t.equals("好的") || t.equals("可以")) {
+                return doDeviceCommand(text, "继续等待图像30秒，不会重复曝光。", () -> ma.answerInspectionImageWait(true));
+            }
+            if (t.contains("不等") || t.equals("不需要") || t.equals("否") || t.equals("不用") || t.equals("取消等待")) {
+                return doDeviceCommand(text, "不再等待X-Ray图像，使用已采集的数据继续分析。", () -> ma.answerInspectionImageWait(false));
+            }
+        }
+
+        if (ExposureVoiceCommand.isTimeSetting(t)) {
+            long millis = ExposureVoiceCommand.parseMillis(text);
+            String result = ma.setExposureDurationByCommand(millis);
+            return doDeviceCommand(text, result, () -> { });
+        }
+        if (ExposureVoiceCommand.isSelectedCapture(t)) {
+            String result = ma.captureSelectedModulesByCommand();
+            return doDeviceCommand(text, result, () -> { });
+        }
+
+        // ===== 停止当前任务（拍摄 / 全检 / AI分析） =====
+        if (isStopTaskCommand(t)) {
+            analysisGeneration++;
+            analysisRunning = false;
+            pendingTaskCommand = null;
+            stopTts();
+            return doDeviceCommand(text, "好的，已停止当前任务。", ma::stopCurrentTask);
+        }
 
         // 历史记录连续对话：确认分析/删除，或在下一句话提供新名称。
         if (pendingAnalysisCaseId != null && isAffirmative(t)) {
@@ -487,6 +588,8 @@ public class ChatFragment extends Fragment {
             return renameCaseNow(text, caseId, text.trim());
         }
 
+        if (handleNavigationOrAnalysis(text, t, ma)) return true;
+
         // 删除、重命名和朗读报告必须优先于普通“打开历史记录”。
         if (t.contains("删除") && (t.contains("历史") || t.contains("记录")
                 || t.contains("案例") || t.contains("第") || t.contains("那条") || t.contains("这条"))) {
@@ -498,7 +601,7 @@ public class ChatFragment extends Fragment {
                 || t.contains("第") || t.contains("那条") || t.contains("这条"))) {
             return requestRenameCase(text, t);
         }
-        if ((t.contains("读取") || t.contains("朗读") || t.contains("念一下") || t.contains("读一下"))
+        if ((t.contains("读") || t.contains("念") || t.contains("播报"))
                 && (t.contains("分析") || t.contains("报告"))) {
             return readCaseReportCommand(text, t);
         }
@@ -508,6 +611,15 @@ public class ChatFragment extends Fragment {
                 && (t.contains("历史") || t.contains("记录") || t.contains("案例")
                 || t.contains("第") || t.contains("那条") || t.contains("这条"))) {
             return analyzeCaseCommand(text, t);
+        }
+
+        // 通用"帮我分析"：直接分析最近一次拍摄的影像，不需要指定历史条目
+        // 例："帮我分析一下" / "分析这张" / "看看刚才拍的那张"
+        if (!isQueryLike(t) && (t.contains("分析") || t.contains("ai识别") || t.contains("识别一下"))
+                && !t.contains("历史") && !t.contains("记录") && !t.contains("第")
+                && !t.contains("打开") && !t.contains("页面") && !t.contains("功能")
+                && !t.contains("拍照") && !t.contains("拍摄")) {
+            return analyzeLatestCaseCommand(text);
         }
 
         // 用户是在询问口令，而不是查询已有报告数量，更不能在未确认时直接开始拍摄。
@@ -584,9 +696,25 @@ public class ChatFragment extends Fragment {
             }
         }
 
+        // ===== 一键全检：自动拍摄 + AI 分析（优先于单纯拍照规则） =====
+        // 例："帮我拍一下看看" / "全面检查" / "全检" / "看看是什么" / "轮拍" / "拍一遍" / "拍照分析"
+        if (t.contains("全检") || t.contains("全面检查") || t.contains("检查一下看看")
+                || t.contains("帮我拍") || t.contains("拍个看看") || t.contains("拍个分析")
+                || t.contains("拍一下看看") || t.contains("看看是什么") || t.contains("看看是啥")
+                || t.contains("轮拍") || t.contains("拍一遍") || t.contains("拍个全面的")
+                || ((t.contains("拍照") || t.contains("拍摄"))
+                && (t.contains("报告") || t.contains("出报告") || t.contains("生成报告")))
+                || ((t.contains("拍") || t.contains("拍照")) && (t.contains("分析") || t.contains("识别")))) {
+            // 携带用户对拍摄目标的口语描述（如"我要拍一只白色的小兔子"）作为分析参考
+            String hint = text.replaceAll("^(小农|小农助手|助手|帮我|给我|请|你好)[，,。\\s]*", "").trim();
+            return doDeviceCommand(text, "好的，小农开始**一键全检**：自动拍摄实时图+热成像，并调用AI多模态分析，稍后为你播报结论。",
+                    () -> { if (ma != null) ma.runFullInspectionByCommand(hint); });
+        }
+
+
         // ===== 页面切换类 =====
-        if (t.contains("打开准备曝光") || t.contains("曝光准备页面")
-                || t.contains("打开曝光页面")) {
+        // 兼容语音识别偏差（"暴光/爆光"）以及"进入/切到/看下准备曝光"等口语说法
+        if (!isQueryLike(t) && isOpenExposurePageCommand(t)) {
             return doDeviceCommand(text, "好的，已打开**准备曝光**页面。", ma::openExposurePreparePage);
         }
 
@@ -608,56 +736,14 @@ public class ChatFragment extends Fragment {
             addUserBubble(text);
             hideWelcome();
             input.setText("");
-            long exposureMillis = parseExposureMillis(t);
-            if (exposureMillis < 0) exposureMillis = 500L;
+            long exposureMillis = ExposureVoiceCommand.parseMillis(text);
+            if (exposureMillis < 0) exposureMillis = ma.getSelectedExposureDuration();
             com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
                     ma.startXrayExposureByCommand(exposureMillis);
             addAiBubble(result.message);
             speakLocalReply(result.message);
             return true;
         }
-        if (t.contains("打开摄像头") || t.contains("摄像头页面") || t.contains("拍照页面")
-                || t.contains("实时图像") || t.contains("打开预览")) {
-            return doDeviceCommand(text, "好的，已打开**摄像头**页面。", ma::openCameraPageByCommand);
-        }
-        // 热成像（含口语变体：热传感摄像头/热感/热像仪/红外）
-        if (t.contains("打开热成像") || t.contains("热成像页面") || t.contains("红外")
-                || t.contains("热传感") || t.contains("热感") || t.contains("热像")) {
-            return doDeviceCommand(text, "好的，已打开**热成像**页面。", ma::openThermalPageByCommand);
-        }
-        if (t.contains("打开x光") || t.contains("打开X光") || t.contains("x光页面")
-                || t.contains("xray") || t.contains("x-ray")
-                || t.contains("打开x射线") || t.contains("打开X射线") || t.contains("打开射线")
-                || t.contains("x射线页面") || t.contains("X射线页面")) {
-            return doDeviceCommand(text, "好的，已打开**X-Ray**影像页面。", ma::openXrayPageByCommand);
-        }
-        if (t.contains("打开ai") || t.contains("打开AI") || t.contains("ai分析")
-                || t.contains("智能分析") || t.contains("打开分析")) {
-            return doDeviceCommand(text, "好的，已打开**AI分析**页面。", ma::openAiAnalysisPageByCommand);
-        }
-        if (t.contains("打开历史") || t.contains("历史记录") || t.contains("查看历史")) {
-            return doDeviceCommand(text, "好的，已打开**历史记录**页面。", ma::openHistoryPageByCommand);
-        }
-        if (t.contains("回到首页") || t.contains("打开首页") || t.contains("设备首页")
-                || t.contains("首页") || t.contains("主页") || t.contains("主界面") || t.contains("主页面")) {
-            return doDeviceCommand(text, "好的，已回到**设备首页**。", ma::openHomePageByCommand);
-        }
-
-        // ===== 一键全检：自动拍摄 + AI 分析（优先于单纯拍照规则） =====
-        // 例："帮我拍一下看看" / "全面检查" / "全检" / "看看是什么" / "轮拍" / "拍一遍" / "拍照分析"
-        if (t.contains("全检") || t.contains("全面检查") || t.contains("检查一下看看")
-                || t.contains("帮我拍") || t.contains("拍个看看") || t.contains("拍个分析")
-                || t.contains("拍一下看看") || t.contains("看看是什么") || t.contains("看看是啥")
-                || t.contains("轮拍") || t.contains("拍一遍") || t.contains("拍个全面的")
-                || ((t.contains("拍照") || t.contains("拍摄"))
-                && (t.contains("报告") || t.contains("出报告") || t.contains("生成报告")))
-                || ((t.contains("拍") || t.contains("拍照")) && (t.contains("分析") || t.contains("识别")))) {
-            // 携带用户对拍摄目标的口语描述（如"我要拍一只白色的小兔子"）作为分析参考
-            String hint = text.replaceAll("^(小农|小农助手|助手|帮我|给我|请|你好)[，,。\\s]*", "").trim();
-            return doDeviceCommand(text, "好的，小农开始**一键全检**：自动拍摄实时图+热成像，并调用AI多模态分析，稍后为你播报结论。",
-                    () -> { if (ma != null) ma.runFullInspectionByCommand(hint); });
-        }
-
         // ===== 拍照控制 =====
         if (t.contains("同时拍照") || t.contains("拍照") || t.contains("拍摄")
                 || t.contains("拍一张") || t.contains("拍个照") || t.contains("照张相")
@@ -665,10 +751,14 @@ public class ChatFragment extends Fragment {
             return doDeviceCommand(text, "好的，正在**同时拍照**，保存实时图和热成像图。", ma::capturePairedPhotoByCommand);
         }
 
+        // ===== 毫米波雷达页面：先跳转（未连接时顺带自动连接） =====
+        // 例："打开毫米波雷达" / "进入雷达页面" / "看下雷达详情"
+        if (!isQueryLike(t) && isOpenRadarPageCommand(t)) {
+            return doDeviceCommand(text, "好的，已打开**毫米波雷达**页面。", ma::openRadarPageByCommand);
+        }
+
         // ===== 毫米波雷达 =====
-        if (((t.contains("连接雷达") || t.contains("打开雷达") || t.contains("启动雷达")
-                || t.contains("连接毫米波") || t.contains("打开毫米波") || t.contains("毫米波雷达"))
-                && !t.contains("关闭"))
+        if (containsRadarWord(t) && !isQueryLike(t) && !t.contains("关闭")
                 && !(t.contains("数据") || t.contains("状态") || t.contains("多少")
                 || t.contains("测距") || t.contains("测一下") || t.contains("距离")
                 || t.contains("呼吸") || t.contains("心率"))) {
@@ -716,6 +806,83 @@ public class ChatFragment extends Fragment {
         return false;
     }
 
+    private boolean handleNavigationOrAnalysis(String text, String normalized, MainActivity activity) {
+        VoiceCommandRouter.Action action = VoiceCommandRouter.match(text);
+        switch (action) {
+            case HOME: return doDeviceCommand(text, "已回到首页。", activity::openHomePageByCommand);
+            case CAMERA: return doDeviceCommand(text, "已打开摄像头。", activity::openCameraPageByCommand);
+            case THERMAL: return doDeviceCommand(text, "已打开热成像。", activity::openThermalPageByCommand);
+            case RADAR: return doDeviceCommand(text, "已打开毫米波雷达。", activity::openRadarPageByCommand);
+            case EXPOSURE: return doDeviceCommand(text, "已打开准备曝光。", activity::openExposurePreparePage);
+            case XRAY: return doDeviceCommand(text, "已打开X-Ray影像。", activity::openXrayPageByCommand);
+            case HISTORY: return doDeviceCommand(text, "已打开历史记录。", activity::openHistoryPageByCommand);
+            case ASSISTANT: return doDeviceCommand(text, "已打开小农助手。", activity::openChatPage);
+            case BACK: return doDeviceCommand(text, "已返回上一级。", activity::navigateUpByCommand);
+            case AI:
+                if (!VoiceCommandRouter.referencesCase(normalized)) {
+                    return doDeviceCommand(text, "已打开AI分析页面。", activity::openAiAnalysisPageByCommand);
+                }
+                // An explicit case reference opens that case's analysis page.
+            case CASE_DETAIL:
+            case REPORT:
+            case ANALYZE: {
+                CaseRepository.CaseRecord record = resolveVoiceCase(normalized);
+                if (record == null) return noMatchingCase(text);
+                String caseId = record.getCaseId();
+                if (action == VoiceCommandRouter.Action.ANALYZE) {
+                    return analyzeAndReadCase(text, caseId);
+                }
+                if (action == VoiceCommandRouter.Action.CASE_DETAIL) {
+                    return doDeviceCommand(text, "已打开案例影像。", () -> activity.openCaseDetail(caseId));
+                }
+                if (action == VoiceCommandRouter.Action.REPORT && record.hasAiReport()) {
+                    return doDeviceCommand(text, "已打开分析报告。", () -> activity.openAiReport(caseId));
+                }
+                if (action == VoiceCommandRouter.Action.REPORT) {
+                    pendingAnalysisCaseId = caseId;
+                    return doDeviceCommand(text,
+                            "这条历史记录还没有AI分析报告。需要我现在分析，完成后为你读取吗？",
+                            () -> activity.openAiForCase(caseId));
+                }
+                return doDeviceCommand(text, record.hasAiReport() ? "已打开该案例的分析页面。"
+                                : "该案例还没有报告，已打开分析页面，可以说开始分析。",
+                        () -> activity.openAiForCase(caseId));
+            }
+            default: return false;
+        }
+    }
+
+    /** Explicit ordinal/time wins, then visible selection, then most recent capture. */
+    private CaseRepository.CaseRecord resolveVoiceCase(String text) {
+        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
+        if (text.contains("第")) {
+            int ordinal = parseOrdinal(text);
+            return ordinal > 0 && ordinal <= records.size() ? records.get(ordinal - 1) : null;
+        }
+        if (hasTimeWord(text)) {
+            TimeFilter filter = parseTimeFilter(text);
+            for (CaseRepository.CaseRecord record : records) {
+                if (filter != null && filter.matches(record.getTimeMillis())) return record;
+            }
+            return null;
+        }
+        if (containsAny(text, "最新", "最近", "最后")) {
+            return records.isEmpty() ? null : records.get(0);
+        }
+        MainActivity activity = (MainActivity) getActivity();
+        String caseId = activity == null ? null : activity.getCurrentCaseId();
+        if (containsAny(text, "刚才", "刚刚", "刚拍") && activity != null) {
+            caseId = activity.getLastCapturedCaseId();
+        }
+        if (caseId == null && activity != null) caseId = activity.getLastCapturedCaseId();
+        if (caseId != null) return CaseRepository.findCase(requireContext(), caseId);
+        return records.isEmpty() ? null : records.get(0);
+    }
+
+    private boolean noMatchingCase(String text) {
+        return doDeviceCommand(text, "没有找到对应的历史案例，请先拍照或确认记录序号。", () -> { });
+    }
+
     /** 是否疑问句（查询意图，不应触发页面切换） */
     private static boolean isQueryLike(String t) {
         return t.contains("几") || t.contains("多少") || t.contains("哪些")
@@ -747,9 +914,50 @@ public class ChatFragment extends Fragment {
                 "选择xray", "选择X-Ray", "选择X射线", "只拍摄", "只拍可见光", "只拍热成像", "只拍X射线");
     }
 
+    /** 是否为"打开准备曝光页面"类指令（兼容"暴光/爆光"等识别偏差） */
+    private static boolean isOpenExposurePageCommand(String text) {
+        String s = text.replace("暴光", "曝光").replace("爆光", "曝光");
+        if (!s.contains("曝光") && !s.contains("曝光准备")) return false;
+        // 开始/停止曝光、选择采集模块属于其他分支，不能当成页面切换
+        if (containsAny(s, "开始曝光", "开启曝光", "停止曝光", "关闭曝光", "帮我曝光",
+                "曝光一下", "选择", "只拍", "不要", "取消", "断开")) {
+            return false;
+        }
+        return containsNavVerb(s) || containsAny(s, "准备曝光", "曝光准备", "曝光页面", "曝光台");
+    }
+
+    /** 是否为"打开毫米波雷达页面"类指令（不包含连接、查询数据等意图） */
+    private static boolean isOpenRadarPageCommand(String text) {
+        String s = text.replace("雷打", "雷达");
+        if (!containsRadarWord(s)) return false;
+        if (containsAny(s, "关闭", "断开")) return false;
+        // 连接、查询数据/状态由后面的专用分支处理
+        if (containsAny(s, "数据", "状态", "多少", "测距", "距离", "呼吸", "心率", "连接")) {
+            return false;
+        }
+        return containsAny(s, "打开", "进入", "切到", "切换到", "跳到", "跳转", "转到", "转去",
+                "显示", "看看", "看下", "查看", "雷达页面", "雷达详情", "雷达界面");
+    }
+
+    /** 页面跳转动词：语音常说"转到/跳转到/切到/看下"，不能只认"打开"。 */
+    private static boolean containsNavVerb(String text) {
+        return containsAny(text, "打开", "进入", "切到", "切换到", "跳到", "跳转",
+                "转到", "转去", "显示", "看看", "看下", "查看", "回到");
+    }
+
     private static boolean containsAny(String text, String... terms) {
         for (String term : terms) if (text.contains(term)) return true;
         return false;
+    }
+
+    /**
+     * 雷达关键词容错：百度短语音常把"毫米波雷达"识别成"毫米玻璃的/毫米波雷打/豪米波"等，
+     * 命中词根才按雷达意图处理，避免整句落到大模型只回话不动作。
+     */
+    private static boolean containsRadarWord(String text) {
+        if (text == null) return false;
+        return containsAny(text, "雷达", "雷打", "毫米波", "毫米玻", "豪米波",
+                "毫米博", "毫米薄", "毫米柏");
     }
 
     private static void appendSelection(StringBuilder builder, String value) {
@@ -758,6 +966,9 @@ public class ChatFragment extends Fragment {
     }
 
     private static boolean isAffirmative(String t) {
+        if (isNegative(t)) return false;
+        if (t.equals("继续") || t.equals("继续读") || t.equals("接着读")
+                || t.equals("读吧") || t.equals("好") || t.equals("全文朗读")) return true;
         return t.equals("需要") || t.equals("要") || t.equals("是") || t.equals("确认")
                 || t.contains("需要分析") || t.contains("开始分析") || t.contains("帮我分析")
                 || t.contains("可以") || t.contains("好的");
@@ -771,15 +982,22 @@ public class ChatFragment extends Fragment {
         addUserBubble(userText);
         hideWelcome();
         input.setText("");
-        final int target = parseOrdinal(t);
+        final CaseRepository.CaseRecord selected = resolveVoiceCase(t);
         new Thread(() -> {
             List<CaseRepository.CaseRecord> records =
                     CaseRepository.queryCases(requireContext().getApplicationContext(), 0);
-            int index = target <= 0 ? -1 : target - 1;
+            int foundIndex = -1;
+            for (int i = 0; selected != null && i < records.size(); i++) {
+                if (selected.getCaseId().equals(records.get(i).getCaseId())) {
+                    foundIndex = i;
+                    break;
+                }
+            }
+            final int index = foundIndex;
             if (index < 0 || index >= records.size()) {
                 mainHandler.post(() -> {
-                    String reply = target > 0 ? "没有找到第 " + target + " 条历史记录。"
-                            : "请告诉我要读取第几条历史记录的AI分析报告。";
+                    if (!isAdded()) return;
+                    String reply = "没有找到对应的历史案例，请确认记录序号或先选择案例。";
                     addAiBubble(reply);
                     speakLocalReply(reply);
                 });
@@ -787,6 +1005,7 @@ public class ChatFragment extends Fragment {
             }
             CaseRepository.CaseRecord record = records.get(index);
             mainHandler.post(() -> {
+                if (!isAdded()) return;
                 if (record.hasAiReport()) {
                     String summary = buildInspectionSpokenSummary(record.getAiReport());
                     addAiBubble("第 " + (index + 1) + " 条历史记录的报告简要概括：\n\n"
@@ -814,36 +1033,47 @@ public class ChatFragment extends Fragment {
             hideWelcome();
             input.setText("");
         }
-        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
-        if (record == null) {
-            addAiBubble("这条历史记录已经不存在了。");
-            speakLocalReply("这条历史记录已经不存在了");
+        if (analysisRunning || isInspectionBusy()) {
+            addAiBubble("当前已有分析任务正在执行，完成后可以继续分析。");
+            speakLocalReply("当前正在分析，请稍等");
             return true;
         }
-        addAiBubble("好的，正在为这条历史记录生成AI分析报告，完成后我会自动读取。");
-        speakLocalReply("好的，正在分析，完成后我会为你读取");
+        CaseRepository.CaseRecord record = CaseRepository.findCase(requireContext(), caseId);
+        if (record == null) {
+            addAiBubble("没有找到可分析的案例，请先拍照或选择历史记录。");
+            speakLocalReply("请先拍照或选择历史记录");
+            return true;
+        }
+        analysisRunning = true;
+        final int generation = ++analysisGeneration;
+        addAiBubble("正在分析所选案例，完成后将打开报告并播报概括。");
+        speakLocalReply("正在分析，完成后为你播报概括");
         AiAnalyzer.analyzeCase(requireContext().getApplicationContext(), record, null,
                 new AiAnalyzer.Callback() {
                     @Override public void onSuccess(String report) {
                         mainHandler.post(() -> {
-                            if (!isAdded()) return;
-                            String summary = buildInspectionSpokenSummary(report);
-                            addAiBubble("AI分析已完成。简要概括：\n\n" + summary
-                                    + "\n\n需要我继续完整读取AI分析报告吗？");
+                            if (!isAdded() || generation != analysisGeneration) return;
+                            analysisRunning = false;
                             if (getActivity() instanceof MainActivity) {
                                 ((MainActivity) getActivity()).openAiReport(caseId);
                             }
                             pendingFullReportCaseId = caseId;
-                            speakFollowUpQuestion(summary + "。需要我继续完整读取AI分析报告吗");
+                            String summary = buildInspectionSpokenSummary(report);
+                            addAiBubble("AI分析已完成。简要概括：\n\n" + summary
+                                    + "\n\n需要我继续完整读取AI分析报告吗？");
+                            announceWhenMicFree(() -> speakFollowUpQuestion(
+                                    summary + "。需要我继续完整读取AI分析报告吗",
+                                    "● 继续聆听，可直接回答", ChatFragment.this::runPendingTask));
                         });
                     }
 
                     @Override public void onError(String error) {
                         mainHandler.post(() -> {
-                            if (!isAdded()) return;
-                            String reply = "AI分析失败：" + error;
-                            addAiBubble(reply);
-                            speakLocalReply(reply);
+                            if (!isAdded() || generation != analysisGeneration) return;
+                            analysisRunning = false;
+                            addAiBubble("AI分析失败：" + error);
+                            announceWhenMicFree(() -> speakFollowUpQuestion(
+                                    "AI分析失败，" + error, "● 继续聆听", ChatFragment.this::runPendingTask));
                         });
                     }
                 });
@@ -851,18 +1081,27 @@ public class ChatFragment extends Fragment {
     }
 
     private boolean analyzeCaseCommand(String userText, String t) {
-        addUserBubble(userText);
-        hideWelcome();
-        input.setText("");
-        int target = parseOrdinal(t);
-        List<CaseRepository.CaseRecord> records = CaseRepository.queryCases(requireContext(), 0);
-        if (target <= 0 || target > records.size()) {
-            String reply = "请明确告诉我要分析第几条历史记录。";
-            addAiBubble(reply);
-            speakFollowUpQuestion(reply);
-            return true;
+        CaseRepository.CaseRecord record = resolveVoiceCase(t);
+        if (record == null) return noMatchingCase(userText);
+        return analyzeAndReadCase(userText, record.getCaseId());
+    }
+
+    private boolean analyzeLatestCaseCommand(String userText) {
+        return analyzeCaseCommand(userText, VoiceCommandRouter.normalize(userText));
+    }
+
+    /** AI 分析完成（区别于全检）：播报结论，并继续连续聆听 */
+    private void notifyAnalysisDone(String caseId, String report) {
+        if (report == null || report.trim().isEmpty()) {
+            addAiBubble("**AI分析**：没有返回有效内容。");
+            announceWhenMicFree(() -> speakText("AI分析没有返回内容，请重试", this::runPendingTask));
+            return;
         }
-        return analyzeAndReadCase(null, records.get(target - 1).getCaseId());
+        addAiBubble("**AI分析完成**，报告已保存到历史记录：\n\n" + report);
+        String summary = buildInspectionSpokenSummary(report);
+        announceWhenMicFree(() -> speakFollowUpQuestion(
+                summary + "完整分析报告已经保存，也可以到历史记录中打开本次记录查看。",
+                "● 继续聆听，可直接说指令", this::runPendingTask));
     }
 
     private boolean readFullReportNow(String userText, String caseId) {
@@ -970,7 +1209,6 @@ public class ChatFragment extends Fragment {
         if (report == null || report.trim().isEmpty()) return;
         String plain = stripEmoji(report).replaceAll("[*#`]+", "")
                 .replaceAll("\\s+", " ").trim();
-        if (plain.length() > 1800) plain = plain.substring(0, 1800) + "。其余内容请在报告页面查看";
         List<String> chunks = new java.util.ArrayList<>();
         while (!plain.isEmpty()) {
             int end = Math.min(180, plain.length());
@@ -992,23 +1230,75 @@ public class ChatFragment extends Fragment {
 
     /** 播报一个追问，播完后直接收听回答，不要求用户再次说唤醒词。 */
     private void speakFollowUpQuestion(String text) {
+        speakFollowUpQuestion(text, "● 等待回答");
+    }
+
+    /**
+     * 播报后直接进入连续聆听：用户可立即说下一条指令，不必再喊"小农小农"；
+     * 若约 6 秒没有检测到人声，自动退回唤醒词模式，避免长时间占用麦克风。
+     */
+    private void speakFollowUpQuestion(String text, String statusLabel) {
+        speakFollowUpQuestion(text, statusLabel, null);
+    }
+
+    /**
+     * 播报后进入连续聆听；afterTts 在播报结束（进入聆听）后执行，
+     * 用于自动执行任务执行期间排队的新指令。
+     */
+    private void speakFollowUpQuestion(String text, String statusLabel, Runnable afterTts) {
         if (!wakeEnabled) {
-            speakText(text);
+            speakText(text, afterTts);
             return;
         }
         wakeState = WSTATE_WAIT_TTS;
+        final String spoken = text;
         speakText(text, () -> {
-            if (!wakeEnabled) return;
+            // 记录刚播报的内容与结束时间，供 sendMessage 过滤麦克风收回声
+            lastSpokenReply = spoken;
+            lastSpokenReplyEndMs = System.currentTimeMillis();
+            if (!wakeEnabled) {
+                if (afterTts != null) afterTts.run();
+                return;
+            }
             wakeBuffer.reset();
             silentFrames = 0;
             questionVoicedFrames = 0;
             wakeTrimPoint = 0;
             wakeTtsStartMs = System.currentTimeMillis();
             wakeTtsDoneMs = wakeTtsStartMs;
+            wakeFollowUpDeadlineMs = wakeTtsDoneMs + FOLLOW_UP_SILENCE_EXIT_MS;
             wakeState = WSTATE_RECORD;
-            statusText.setText("● 等待回答");
+            statusText.setText(statusLabel);
             statusText.setTextColor(Color.parseColor("#FFB74D"));
+            mainHandler.removeCallbacks(followUpCountdown);
+            mainHandler.post(followUpCountdown);
+            if (afterTts != null) afterTts.run();
         });
+    }
+
+    private void restoreListeningAfterSilentCommand() {
+        mainHandler.postDelayed(() -> {
+            if (!isAdded() || !wakeEnabled || streaming || ttsPlaying || !ttsQueue.isEmpty()
+                    || wakeState != WSTATE_WAIT_TTS || wakeRecorder == null) return;
+            wakeBuffer.reset();
+            silentFrames = 0;
+            questionVoicedFrames = 0;
+            wakeTrimPoint = 0;
+            wakeTtsDoneMs = System.currentTimeMillis();
+            wakeFollowUpDeadlineMs = wakeTtsDoneMs + FOLLOW_UP_SILENCE_EXIT_MS;
+            wakeState = WSTATE_RECORD;
+            mainHandler.removeCallbacks(followUpCountdown);
+            mainHandler.post(followUpCountdown);
+        }, 150L);
+    }
+
+    private void reportSpeechRecognitionFailure(String message) {
+        if (!isAdded()) return;
+        statusText.setText(message);
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).showVoiceStatus(message);
+        Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
+        wakeState = WSTATE_WAIT_TTS;
+        restoreListeningAfterSilentCommand();
     }
 
     /** 本地统计历史/AI分析数量并直接回答，避免误触发"打开历史记录"页面 */
@@ -1361,11 +1651,11 @@ public class ChatFragment extends Fragment {
     }
 
     /**
-     * 播报本地回复；唤醒会话中播报完成后自动恢复唤醒监听，
-     * 避免状态卡在 WAIT_TTS（该状态会丢弃音频，导致后续叫唤无响应）。
+     * 播报本地回复；播完后直接进入连续聆听（不必再喊唤醒词），
+     * 静音 6 秒自动退回唤醒词模式，避免状态卡在 WAIT_TTS。
      */
     private void speakLocalReply(String text) {
-        speakInterruptibleText(text);
+        speakFollowUpQuestion(text, "● 继续聆听，可直接说指令");
     }
 
     /** 播报时继续监听连续两次唤醒词；命中后立即停止当前语音并重新聆听。 */
@@ -1651,6 +1941,8 @@ public class ChatFragment extends Fragment {
             return;
         }
         String plain = stripEmoji(text).replaceAll("[*#`\\-]", "").trim();
+        // The speaker must not pronounce the repeated interruption password itself.
+        for (String alias : WAKE_WORD_ALIASES) plain = plain.replace(alias + alias, alias);
         final String spoken;
         if (plain.length() > 200) {
             spoken = plain.substring(0, 200);
@@ -1671,6 +1963,14 @@ public class ChatFragment extends Fragment {
         final TtsTask task = ttsQueue.pollFirst();
         if (task == null) return;
         ttsPlaying = true;
+        speechEpoch++;
+        lastSpokenReply = task.spoken;
+        // The short wake acknowledgement intentionally records the user's question
+        // concurrently; its audio is trimmed by wakeTrimPoint after completion.
+        if (wakeEnabled && !("我在".equals(task.spoken) && wakeState == WSTATE_RECORD))
+            wakeState = WSTATE_WAIT_TTS;
+        if (getActivity() instanceof MainActivity)
+            ((MainActivity) getActivity()).showVoiceStatus("小农：正在播报，可说“小农小农”打断");
         byte[] cached = shortTtsCache.get(task.spoken);
         if (cached != null && cached.length > 0) {
             playTtsAudio(cached, () -> finishTtsTask(task, task.onDone));
@@ -1730,8 +2030,13 @@ public class ChatFragment extends Fragment {
         mainHandler.post(() -> {
             if (task.generation != ttsGeneration) return;
             ttsPlaying = false;
+            speechEndedMs = System.currentTimeMillis();
+            lastSpokenReplyEndMs = speechEndedMs;
             if (onDone != null) onDone.run();
             playNextTts();
+            if (wakeEnabled && !ttsPlaying && ttsQueue.isEmpty() && wakeState == WSTATE_LISTEN
+                    && getActivity() instanceof MainActivity)
+                ((MainActivity) getActivity()).showVoiceStatus("小农：等待唤醒，请说“小农小农”");
         });
     }
 
@@ -1785,6 +2090,8 @@ public class ChatFragment extends Fragment {
 
     /** 立即停止语音播报（闭嘴按钮），并取消尚未播报的排队任务 */
     private void stopTts() {
+        speechEpoch++;
+        speechEndedMs = System.currentTimeMillis();
         // 使正在下载但尚未播放的旧任务失效，保证语音打断后不会“又自己说起来”。
         ttsGeneration++;
         if (ttsPlayer != null) {
@@ -1842,6 +2149,18 @@ public class ChatFragment extends Fragment {
                 return;
             }
             wakeRecorder.startRecording();
+            if (getActivity() instanceof MainActivity)
+                ((MainActivity) getActivity()).showVoiceStatus("小农：等待唤醒，请说“小农小农”");
+            try {
+                if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                    wakeNoiseSuppressor = android.media.audiofx.NoiseSuppressor.create(wakeRecorder.getAudioSessionId());
+                    if (wakeNoiseSuppressor != null) wakeNoiseSuppressor.setEnabled(true);
+                }
+                if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
+                    wakeEchoCanceler = android.media.audiofx.AcousticEchoCanceler.create(wakeRecorder.getAudioSessionId());
+                    if (wakeEchoCanceler != null) wakeEchoCanceler.setEnabled(true);
+                }
+            } catch (RuntimeException error) { Log.w("WG-VOICE", "Device audio preprocessing unavailable"); }
             wakeInitRetries = 0;
             wakeActualRate = 16000;
             if (android.os.Build.VERSION.SDK_INT >= 24) {
@@ -1857,6 +2176,7 @@ public class ChatFragment extends Fragment {
             wakePreRoll.clear();
             wakeSpeaking = false;
             inDialogMode = false;
+            wakeFollowUpDeadlineMs = 0;
 
             wakeThread = new Thread(() -> {
                 short[] buf = new short[640]; // 40ms @16k
@@ -1934,6 +2254,24 @@ public class ChatFragment extends Fragment {
                         }
                     } else if (wakeState == WSTATE_RECORD) {
                         // ===== 录用户问题 =====
+                        // 连续聆听窗口内一直没检测到人声：超时后退回唤醒词模式，不播报任何提示
+                        if (wakeFollowUpDeadlineMs > 0 && questionVoicedFrames == 0
+                                && System.currentTimeMillis() >= wakeFollowUpDeadlineMs) {
+                            wakeFollowUpDeadlineMs = 0;
+                            wakeState = WSTATE_LISTEN;
+                            silentFrames = 0;
+                            questionVoicedFrames = 0;
+                            wakeBuffer.reset();
+                            mainHandler.post(() -> {
+                                if (wakeState == WSTATE_LISTEN) {
+                                    statusText.setText("● 聆听已结束，请说“小农小农”唤醒");
+                                    if (getActivity() instanceof MainActivity)
+                                        ((MainActivity) getActivity()).showVoiceStatus("小农：等待唤醒，请说“小农小农”");
+                                    statusText.setTextColor(Color.parseColor("#70D69B"));
+                                }
+                            });
+                            continue;
+                        }
                         try { wakeBuffer.write(bytes); } catch (Exception ignored) {}
                         // "我在"播完的瞬间记录字节切点，用于精确裁剪提示音
                         if (wakeTtsDoneMs > 0 && wakeTrimPoint < 0) {
@@ -1943,16 +2281,23 @@ public class ChatFragment extends Fragment {
                                 ? System.currentTimeMillis() - wakeTtsDoneMs : 0L;
                         double questionStartThreshold = Math.min(
                                 1600.0,
-                                Math.max(WAKE_MIN_START_THRESHOLD, wakeNoiseFloor * 2.2)
+                                Math.max(180.0, wakeNoiseFloor * 2.0)
                         );
                         if (wakeTtsDoneMs > 0
                                 && afterAckMs >= QUESTION_TTS_TAIL_MS
                                 && rms >= questionStartThreshold) {
                             questionVoicedFrames++;
                         }
+                        // Keep a short pre-roll instead of accumulating 15 seconds of silence.
+                        if (wakeFollowUpDeadlineMs > 0 && questionVoicedFrames == 0 && wakeBuffer.size() > 16000) {
+                            byte[] leading = wakeBuffer.toByteArray();
+                            wakeBuffer.reset();
+                            wakeBuffer.write(leading, leading.length - 6400, 6400);
+                        }
                         // 超过12秒强制发送，防止环境人声让录音无限增长
                         if (wakeBuffer.size() > QUESTION_MAX_BYTES) {
                             wakeState = WSTATE_LISTEN;
+                            wakeFollowUpDeadlineMs = 0;
                             silentFrames = 0;
                             byte[] audioData = wakeBuffer.toByteArray();
                             wakeBuffer.reset();
@@ -1969,15 +2314,18 @@ public class ChatFragment extends Fragment {
                         }
                         double questionEndThreshold = Math.min(
                                 1100.0,
-                                Math.max(WAKE_MIN_END_THRESHOLD, wakeNoiseFloor * 1.7)
+                                Math.max(120.0, wakeNoiseFloor * 1.5)
                         );
                         boolean responseGraceFinished = afterAckMs >= QUESTION_RESPONSE_GRACE_MS;
                         if (rms < questionEndThreshold && wakeTtsDoneMs > 0
                                 && (responseGraceFinished || questionVoicedFrames > 0)) {
                             silentFrames++;
-                            if (silentFrames >= WAKE_SILENT_LIMIT) {
+                            // 连续聆听窗口内还没开口时，不按短静音结束，改用 6 秒超时退出
+                            if (silentFrames >= WAKE_SILENT_LIMIT
+                                    && (wakeFollowUpDeadlineMs == 0 || questionVoicedFrames > 0)) {
                                 // 说完了：有人声才送识别；纯静音只累计次数，不制造问题文本
                                 wakeState = WSTATE_LISTEN;
+                                wakeFollowUpDeadlineMs = 0;
                                 silentFrames = 0;
                                 byte[] audioData = wakeBuffer.toByteArray();
                                 wakeBuffer.reset();
@@ -2015,10 +2363,14 @@ public class ChatFragment extends Fragment {
     }
 
     private void stopWakeListening() {
+        if (wakeNoiseSuppressor != null) { wakeNoiseSuppressor.release(); wakeNoiseSuppressor = null; }
+        if (wakeEchoCanceler != null) { wakeEchoCanceler.release(); wakeEchoCanceler = null; }
+        if (mainHandler != null) mainHandler.removeCallbacks(followUpCountdown);
         wakeEnabled = false;
         wakeSpeaking = false;
         inDialogMode = false;
         wakeInitRetries = 0;
+        wakeFollowUpDeadlineMs = 0;
         if (wakeRecorder != null) {
             try { wakeRecorder.stop(); } catch (Exception ignored) {}
             wakeRecorder.release();
@@ -2069,6 +2421,9 @@ public class ChatFragment extends Fragment {
     // 处理唤醒音频：上传识别，检查有没有唤醒词
     private void handleWakeAudio(byte[] pcmData) {
         if (streaming || pcmData == null || pcmData.length < 3200) return;
+        final boolean interruptOnly = ttsPlaying || !ttsQueue.isEmpty()
+                || wakeState == WSTATE_WAIT_TTS
+                || System.currentTimeMillis() - speechEndedMs < 600L;
         if (!wakeAsrInFlight.compareAndSet(false, true)) {
             Log.d("WAKE", "唤醒 ASR 忙，忽略重叠音频");
             return;
@@ -2089,7 +2444,7 @@ public class ChatFragment extends Fragment {
                     String text = json.getJSONArray("result").getString(0);
                     Log.d("WAKE", "唤醒 ASR 返回 chars=" + (text == null ? 0 : text.length())
                             + " latencyMs=" + (System.currentTimeMillis() - wakeAsrStartedMs));
-                    mainHandler.post(() -> onWakeRecognized(text));
+                    mainHandler.post(() -> onWakeRecognized(text, interruptOnly));
                 } else {
                     Log.d("WAKE", "唤醒识别失败 errNo=" + errNo + " msg=" + json.optString("err_msg"));
                 }
@@ -2103,11 +2458,17 @@ public class ChatFragment extends Fragment {
 
     // 识别结果回调
     private void onWakeRecognized(String text) {
+        onWakeRecognized(text, false);
+    }
+
+    private void onWakeRecognized(String text, boolean interruptOnly) {
         if (!wakeEnabled || (wakeState != WSTATE_LISTEN && wakeState != WSTATE_WAIT_TTS)) return;
         if (text == null || text.trim().isEmpty()) return;
         text = text.trim();
 
-        final boolean interruptingSpeech = wakeState == WSTATE_WAIT_TTS;
+        final boolean interruptingSpeech = interruptOnly || ttsPlaying || !ttsQueue.isEmpty()
+                || wakeState == WSTATE_WAIT_TTS
+                || System.currentTimeMillis() - speechEndedMs < 600L;
         // 播报内容可能偶然包含一次“小农”。打断时要求用户连续叫两次，避免扬声器自唤醒。
         if (interruptingSpeech && !containsRepeatedWakeWord(text)) {
             Log.d("WAKE", "播报期间忽略非重复唤醒词 chars=" + text.length());
@@ -2173,10 +2534,11 @@ public class ChatFragment extends Fragment {
             consecutiveSilentWakeCount = 0;
             if (!streaming) {
                 input.setText(question);
+                wakeState = WSTATE_WAIT_TTS;
                 sendMessage(question);
+                restoreListeningAfterSilentCommand();
             }
             // AI 回复期间丢弃音频，避免误触发唤醒；回复播完后自动恢复监听
-            wakeState = WSTATE_WAIT_TTS;
             return;
         }
 
@@ -2186,6 +2548,7 @@ public class ChatFragment extends Fragment {
         silentFrames = 0;
         questionVoicedFrames = 0;
         wakeState = WSTATE_RECORD;
+        wakeFollowUpDeadlineMs = 0;
         wakeTtsStartMs = System.currentTimeMillis();
         wakeTtsDoneMs = 0;
         wakeTrimPoint = -1;
@@ -2236,17 +2599,16 @@ public class ChatFragment extends Fragment {
 
     // 处理用户问题音频：上传识别后自动发送
     private void handleQuestionAudio(byte[] pcmData) {
+        if (ttsPlaying || !ttsQueue.isEmpty()) return;
+        final int recordedSpeechEpoch = speechEpoch;
         if (pcmData == null) {
             wakeState = WSTATE_LISTEN;
             return;
         }
+        wakeFollowUpDeadlineMs = 0;
         // 裁剪掉"我在"提示音段：录音循环在TTS播完瞬间记录字节切点（wakeTrimPoint），
         // 再留 200ms（6400字节）余量清掉播放器尾部，避免残留提示音干扰识别
-        int start = (wakeTrimPoint > 0 && wakeTrimPoint < pcmData.length) ? wakeTrimPoint : 0;
-        int extra = 6400;
-        if (pcmData.length - (start + extra) < 4000) extra = 0;
-        start += extra;
-        if (start >= pcmData.length) start = 0;
+        int start = VoiceCapturePolicy.prefixToTrim(pcmData.length, wakeTrimPoint, wakeActualRate);
         final byte[] finalData;
         if (start > 0) {
             byte[] trimmed = new byte[pcmData.length - start];
@@ -2261,6 +2623,7 @@ public class ChatFragment extends Fragment {
         }
         statusText.setText("● 识别中");
         statusText.setTextColor(Color.parseColor("#FFB74D"));
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).showVoiceStatus("小农：正在识别，请稍候");
 
         new Thread(() -> {
             try {
@@ -2275,36 +2638,31 @@ public class ChatFragment extends Fragment {
                 if (errNo == 0) {
                         String text = json.getJSONArray("result").getString(0);
                         mainHandler.post(() -> {
+                            // A delayed ASR response may contain audio from before/during
+                            // a newer spoken reply. Never submit it as a fresh question.
+                            if (recordedSpeechEpoch != speechEpoch || ttsPlaying || !ttsQueue.isEmpty()) return;
                             statusText.setText("● 在线");
                             statusText.setTextColor(Color.parseColor("#70D69B"));
                             String recognized = text == null ? "" : text.trim();
                             if (isLikelyNoQuestion(recognized)) {
-                                handleWakeNoSpeech();
+                                reportSpeechRecognitionFailure("没有听清，请再说一次");
                             } else {
                                 consecutiveSilentWakeCount = 0;
                                 input.setText(recognized);
                                 // AI 回复期间丢弃音频，避免误触发唤醒；播完后自动恢复监听
                                 wakeState = WSTATE_WAIT_TTS;
                                 sendMessage(recognized);
+                                restoreListeningAfterSilentCommand();
                             }
                         });
                     } else {
-                        final JSONObject errJson = json;
                         mainHandler.post(() -> {
-                            statusText.setText("● 在线");
-                            statusText.setTextColor(Color.parseColor("#70D69B"));
-                            Toast.makeText(requireContext(),
-                                    "识别失败(" + errNo + ")：" + errJson.optString("err_msg")
-                                            + " 时长" + (up.length / 32000.0) + "s",
-                                    Toast.LENGTH_LONG).show();
-                            wakeState = WSTATE_LISTEN;
+                            reportSpeechRecognitionFailure("语音识别失败(" + errNo + ")，请重说");
                         });
                     }
             } catch (Exception ignored) {
                 mainHandler.post(() -> {
-                    statusText.setText("● 在线");
-                    statusText.setTextColor(Color.parseColor("#70D69B"));
-                    wakeState = WSTATE_LISTEN;
+                    reportSpeechRecognitionFailure("语音识别连接失败，请检查网络后重说");
                 });
             }
         }, "question-asr").start();
@@ -2320,6 +2678,7 @@ public class ChatFragment extends Fragment {
         statusText.setText("● 在线");
         statusText.setTextColor(Color.parseColor("#70D69B"));
         wakeSessionActive = false;
+        wakeFollowUpDeadlineMs = 0;
         if (consecutiveSilentWakeCount < SILENT_WAKE_HELP_THRESHOLD) {
             wakeState = WSTATE_LISTEN;
             Log.d("WAKE", "唤醒后未说话 count=" + consecutiveSilentWakeCount);
@@ -2413,9 +2772,20 @@ public class ChatFragment extends Fragment {
         while (messages.length() > 1 + MAX_CONTEXT_MESSAGES) {
             messages.remove(1);
         }
+        // Keep complete user/assistant/tool turns at the start of the sliding window.
+        while (messages.length() > 1
+                && !"user".equals(messages.optJSONObject(1).optString("role"))) {
+            messages.remove(1);
+        }
     }
 
     private void startStream(String userText) {
+        if (API_KEY == null || API_KEY.trim().isEmpty()) {
+            addAiBubble("未配置 DeepSeek API Key，请在 local.properties 中配置后重新构建。");
+            wakeSessionActive = false;
+            wakeState = WSTATE_LISTEN;
+            return;
+        }
         try {
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
@@ -2456,12 +2826,11 @@ public class ChatFragment extends Fragment {
                 public void onResponse(Call call, Response response) {
                     if (!response.isSuccessful()) {
                         int statusCode = response.code();
-                        String errorBody = "";
-                        try {
-                            errorBody = response.body() == null ? "" : response.body().string();
-                        } catch (IOException ignored) {
-                        } finally {
-                            response.close();
+                        String errorBody;
+                        try (Response errorResponse = response) {
+                            errorBody = errorResponse.body() == null ? "" : errorResponse.body().string();
+                        } catch (IOException error) {
+                            errorBody = error.getMessage();
                         }
                         handleStreamHttpFailure(statusCode, errorBody);
                         return;
@@ -2472,9 +2841,9 @@ public class ChatFragment extends Fragment {
                     String[] toolNames = new String[4];
                     StringBuilder[] toolArgs = new StringBuilder[4];
                     boolean[] toolIndexUsed = new boolean[4];
-                    try {
+                    try (Response streamResponse = response) {
                         BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8)
+                                new InputStreamReader(streamResponse.body().byteStream(), StandardCharsets.UTF_8)
                         );
                         String line;
                         while ((line = reader.readLine()) != null) {
@@ -2526,13 +2895,8 @@ public class ChatFragment extends Fragment {
                             }
                         }
                     } catch (Exception e) {
-                        mainHandler.post(() -> {
-                            if (streamingView != null) {
-                                streamingView.setText("读取回复失败：" + e.getMessage());
-                            }
-                        });
-                    } finally {
-                        response.close();
+                        handleStreamFailure(new IOException("读取回复失败：" + e.getMessage(), e));
+                        return;
                     }
 
                     // 取第一个工具调用（DeepSeek 单轮一般只返回一个）
@@ -2572,15 +2936,23 @@ public class ChatFragment extends Fragment {
         JSONArray tools = new JSONArray();
         try {
             tools.put(buildTool("open_page",
-                    "切换设备功能页面。用户说'打开/进入/切到/看下'某页面时使用（如打开热成像、打开摄像头、打开X光、打开AI分析、打开历史记录、回到首页）。",
+                    "切换设备功能页面。用户说'打开/进入/切到/看下'某页面时使用（如打开热成像、打开摄像头、打开X光、打开毫米波雷达、打开准备曝光、打开AI分析、打开历史记录、回到首页）。",
                     new String[][]{
-                            {"page", "string", "目标页面：home=设备首页，camera=摄像头，thermal=热成像（也叫热传感摄像头/红外/热像仪），xray=X-Ray影像，ai=AI分析，history=历史记录", "true"}
+                            {"page", "string", "目标页面：home=设备首页，camera=摄像头，thermal=热成像（热传感摄像头/红外），xray=X-Ray影像，radar=毫米波雷达，exposure=准备曝光，ai=AI分析，history=历史记录，assistant=小农助手，back=返回上一级，report=当前案例报告，case_detail=当前案例影像，ai_case=当前案例分析页面。需要执行分析时调用analyze_case。", "true"}
                     }));
             tools.put(buildTool("capture_photos",
                     "执行同时拍照：一次保存实时图（摄像头图）和热成像图。用户说'拍照/拍一张/同时拍照/拍摄'时使用。",
                     new String[][]{}));
+            tools.put(buildTool("analyze_case",
+                    "真正执行所选历史案例的AI分析，完成后显示报告并播报。明确第N条时传ordinal，否则使用当前页面选中案例。",
+                    new String[][]{
+                            {"ordinal", "integer", "案例序号，从1开始。未指定时省略，使用当前案例", "false"}
+                    }));
+            tools.put(buildTool("analyze_latest_case",
+                    "对最近一次拍摄的影像做AI多模态分析并播报结论。用户说'帮我分析一下/分析这张/看看刚才拍的片子'时使用；若用户还要先拍照，直接用 capture_photos 或全检流程。",
+                    new String[][]{}));
             tools.put(buildTool("connect_radar",
-                    "连接毫米波雷达设备。用户说'连接雷达/打开雷达/启动雷达'时使用。",
+                    "仅建立毫米波雷达连接，不切换页面。用户明确说'连接雷达/连一下雷达'时使用；若用户说'打开/进入雷达页面/看雷达详情'，应改用 open_page(radar)。",
                     new String[][]{}));
             tools.put(buildTool("query_radar",
                     "查询毫米波雷达当前数据（物体状态/距离/呼吸/心率）。用户问'雷达测距/当前距离/雷达数据/呼吸多少'时使用。",
@@ -2628,6 +3000,11 @@ public class ChatFragment extends Fragment {
     }
 
     private Request buildRequest(JSONObject reqBody) {
+        try {
+            reqBody.put("thinking", new JSONObject().put("type", "disabled"));
+            reqBody.put("parallel_tool_calls", false);
+        } catch (Exception ignored) { }
+
         RequestBody body = RequestBody.create(
                 reqBody.toString(),
                 MediaType.parse("application/json; charset=utf-8")
@@ -2638,27 +3015,6 @@ public class ChatFragment extends Fragment {
                 .addHeader("Content-Type", "application/json")
                 .post(body)
                 .build();
-    }
-
-    private void handleStreamFailure(IOException e) {
-        streaming = false;
-        mainHandler.post(() -> {
-            stopThinking();
-            setUiBusy(false);
-            if (streamingView != null) {
-                streamingView.setText("网络错误：" + e.getMessage() + "\n请检查设备网络后重试。");
-            }
-            statusText.setText("● 网络异常");
-            statusText.setTextColor(Color.parseColor("#FF8A80"));
-            Toast.makeText(requireContext(), "网络连接失败", Toast.LENGTH_SHORT).show();
-            // AI 请求失败也要恢复唤醒监听，避免状态卡在 WAIT_TTS
-            if (wakeSessionActive) {
-                wakeSessionActive = false;
-                wakeState = WSTATE_LISTEN;
-                statusText.setText("● 在线");
-                statusText.setTextColor(Color.parseColor("#70D69B"));
-            }
-        });
     }
 
     private void handleStreamHttpFailure(int statusCode, String body) {
@@ -2692,11 +3048,35 @@ public class ChatFragment extends Fragment {
         });
     }
 
+
+    private void handleStreamFailure(IOException e) {
+        streaming = false;
+        mainHandler.post(() -> {
+            stopThinking();
+            setUiBusy(false);
+            if (streamingView != null) {
+                streamingView.setText("网络错误：" + e.getMessage() + "\n请检查设备网络后重试。");
+            }
+            statusText.setText("● 网络异常");
+            statusText.setTextColor(Color.parseColor("#FF8A80"));
+            Toast.makeText(requireContext(), "网络连接失败", Toast.LENGTH_SHORT).show();
+            // AI 请求失败也要恢复唤醒监听，避免状态卡在 WAIT_TTS
+            if (wakeSessionActive) {
+                wakeSessionActive = false;
+                wakeState = WSTATE_LISTEN;
+                statusText.setText("● 在线");
+                statusText.setTextColor(Color.parseColor("#70D69B"));
+            }
+        });
+    }
+
     /**
      * 主线程执行工具动作；执行完成后把结果作为 tool 消息回给大模型，
      * 由大模型生成最终的自然语言回复（流式打字机 + 语音播报）。
      */
-    private void handleToolCall(String name, String argsJson, String toolId) {
+    private void handleToolCall(String name, String argsJson, String returnedToolId) {
+        final String toolId = returnedToolId == null || returnedToolId.isEmpty()
+                ? "call_" + System.nanoTime() : returnedToolId;
         // 先保存第一轮 assistant 的工具调用消息（上下文一致性）
         try {
             JSONObject asst = new JSONObject();
@@ -2721,11 +3101,45 @@ public class ChatFragment extends Fragment {
         try {
             JSONObject args = (argsJson == null || argsJson.trim().isEmpty())
                     ? new JSONObject() : new JSONObject(argsJson);
+            if (ma == null) throw new IllegalStateException("当前页面无法执行设备操作");
+            if ("analyze_case".equals(name) || "analyze_latest_case".equals(name)) {
+                int ordinal = args.optInt("ordinal", -1);
+                String reference = ordinal > 0 ? "第" + ordinal + "条"
+                        : ("analyze_latest_case".equals(name) ? "最新案例" : "当前案例");
+                CaseRepository.CaseRecord record = resolveVoiceCase(reference);
+                messages.put(buildToolResultMessage(toolId, record == null
+                        ? "未找到对应案例，未发起分析" : "已提交案例分析，等待实际结果"));
+                streaming = false;
+                stopThinking();
+                setUiBusy(false);
+                if (streamingView != null) streamingView.setText(record == null
+                        ? "没有找到可分析的案例。" : "正在分析所选案例。");
+                if (record != null) analyzeAndReadCase(null, record.getCaseId());
+                return;
+            }
             switch (name) {
                 case "open_page": {
                     String page = args.optString("page", "");
                     String pageName;
                     switch (page) {
+                        case "report":
+                        case "case_detail":
+                        case "ai_case": {
+                            CaseRepository.CaseRecord record = resolveVoiceCase("当前案例");
+                            if (record == null) throw new IllegalArgumentException("没有找到当前案例");
+                            if ("case_detail".equals(page)) {
+                                ma.openCaseDetail(record.getCaseId());
+                                pageName = "当前案例影像";
+                            } else if ("report".equals(page) && record.hasAiReport()) {
+                                ma.openAiReport(record.getCaseId());
+                                pageName = "当前案例报告";
+                            } else {
+                                ma.openAiForCase(record.getCaseId());
+                                pageName = record.hasAiReport() ? "当前案例分析页面"
+                                        : "当前案例分析页面，该案例尚未生成报告";
+                            }
+                            break;
+                        }
                         case "camera":
                             if (ma != null) ma.openCameraPageByCommand();
                             pageName = "摄像头页面";
@@ -2738,6 +3152,14 @@ public class ChatFragment extends Fragment {
                             if (ma != null) ma.openXrayPageByCommand();
                             pageName = "X-Ray影像页面";
                             break;
+                        case "radar":
+                            if (ma != null) ma.openRadarPageByCommand();
+                            pageName = "毫米波雷达页面";
+                            break;
+                        case "exposure":
+                            if (ma != null) ma.openExposurePreparePage();
+                            pageName = "准备曝光页面";
+                            break;
                         case "ai":
                             if (ma != null) ma.openAiAnalysisPageByCommand();
                             pageName = "AI分析页面";
@@ -2746,10 +3168,20 @@ public class ChatFragment extends Fragment {
                             if (ma != null) ma.openHistoryPageByCommand();
                             pageName = "历史记录页面";
                             break;
-                        default:
+                        case "assistant":
+                            if (ma != null) ma.openChatPage();
+                            pageName = "小农助手";
+                            break;
+                        case "back":
+                            if (ma != null) ma.navigateUpByCommand();
+                            pageName = "上一级页面";
+                            break;
+                        case "home":
                             if (ma != null) ma.openHomePageByCommand();
                             pageName = "设备首页";
                             break;
+                        default:
+                            throw new IllegalArgumentException("未知页面：" + page);
                     }
                     result = "已打开" + pageName;
                     break;
@@ -2819,22 +3251,24 @@ public class ChatFragment extends Fragment {
                                         buildToolResultMessage(toolId, "历史记录目前为空，没有可打开的案例")));
                                 return;
                             }
-                            int safe = Math.min(target, records.size());
+                            if (target < 1 || target > records.size()) {
+                                mainHandler.post(() -> sendFinalStream(buildToolResultMessage(toolId,
+                                        "没有找到第" + target + "条历史记录")));
+                                return;
+                            }
+                            int safe = target;
                             CaseRepository.CaseRecord rec = records.get(safe - 1);
                             final String caseId = rec.getCaseId();
                             final String label = (rec.getDisplayName() == null || rec.getDisplayName().trim().isEmpty())
                                     ? formatReadableTime(rec.getTimeMillis()) : rec.getDisplayName();
-                            final String res = "已打开第" + safe + "条" + (wantAi ? "的分析报告" : "历史记录")
+                            final String res = "已打开第" + safe + "条" + (wantAi
+                                    ? (rec.hasAiReport() ? "的分析报告" : "的分析页面，尚未生成报告") : "历史记录")
                                     + "（" + label + "）" + (rec.hasAiReport() ? "，该案例已有AI分析报告" : "");
                             mainHandler.post(() -> {
                                 if (fma != null) {
-                                    if (wantAi && rec.hasAiReport()) {
-                                        fma.openAiReport(caseId);
-                                    } else if (wantAi) {
-                                        fma.openAiForCase(caseId);
-                                    } else {
-                                        fma.openCaseDetail(caseId);
-                                    }
+                                    if (wantAi && rec.hasAiReport()) fma.openAiReport(caseId);
+                                    else if (wantAi) fma.openAiForCase(caseId);
+                                    else fma.openCaseDetail(caseId);
                                 }
                                 sendFinalStream(buildToolResultMessage(toolId, res));
                             });
@@ -2887,20 +3321,19 @@ public class ChatFragment extends Fragment {
                 public void onResponse(Call call, Response response) {
                     if (!response.isSuccessful()) {
                         int statusCode = response.code();
-                        String errorBody = "";
-                        try {
-                            errorBody = response.body() == null ? "" : response.body().string();
-                        } catch (IOException ignored) {
-                        } finally {
-                            response.close();
+                        String errorBody;
+                        try (Response errorResponse = response) {
+                            errorBody = errorResponse.body() == null ? "" : errorResponse.body().string();
+                        } catch (IOException error) {
+                            errorBody = error.getMessage();
                         }
                         handleStreamHttpFailure(statusCode, errorBody);
                         return;
                     }
                     StringBuilder full = new StringBuilder();
-                    try {
+                    try (Response streamResponse = response) {
                         BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8)
+                                new InputStreamReader(streamResponse.body().byteStream(), StandardCharsets.UTF_8)
                         );
                         String line;
                         while ((line = reader.readLine()) != null) {
@@ -2931,13 +3364,8 @@ public class ChatFragment extends Fragment {
                             }
                         }
                     } catch (Exception e) {
-                        mainHandler.post(() -> {
-                            if (streamingView != null) {
-                                streamingView.setText("读取回复失败：" + e.getMessage());
-                            }
-                        });
-                    } finally {
-                        response.close();
+                        handleStreamFailure(new IOException("读取回复失败：" + e.getMessage(), e));
+                        return;
                     }
                     mainHandler.post(() -> finishStream(full.toString()));
                 }
@@ -3007,11 +3435,82 @@ public class ChatFragment extends Fragment {
 
     // ==================== 一键全检：AI 分析结果播报（MainActivity 回调） ====================
 
+    /** 一键全检（拍摄或AI分析）是否正在执行 */
+    private boolean isInspectionBusy() {
+        android.app.Activity act = getActivity();
+        return act instanceof MainActivity && ((MainActivity) act).isInspectionRunning();
+    }
+
+    /** 判断识别结果是不是小农自己播报的回声 */
+    private boolean isEchoOfLastReply(String text) {
+        String a = text.replaceAll("[\\s，。！？,.!?、；：\"'“”（）()*]", "");
+        String b = lastSpokenReply.replaceAll("[\\s，。！？,.!?、；：\"'“”（）()*]", "");
+        if (a.length() < 2) return false;
+        if (b.contains(a)) return true;
+        // 识别可能只覆盖半句或有个别错字，用前 6 个字兜底比对
+        String head = a.length() >= 6 ? a.substring(0, 6) : a;
+        return head.length() >= 4 && b.contains(head);
+    }
+
+    /** 拍摄/全检类指令：任务未结束时不能并发执行，先排队 */
+    private static boolean isCaptureTypeCommand(String text) {
+        return containsAny(text, "拍", "全检", "全面检查", "检查一下", "扫描",
+                "测一下", "再测", "重新测", "再来一次", "再检查");
+    }
+
+    /** 停止当前任务：必须同时出现"停/取消"类动词和任务类名词，避免误伤"停止曝光"等指令 */
+    private static boolean isStopTaskCommand(String text) {
+        boolean stop = containsAny(text, "停止", "停下", "停掉", "中止", "中断", "取消全检",
+                "取消当前", "取消这个", "取消这次", "别做了", "不要做了", "结束当前");
+        boolean task = containsAny(text, "任务", "全检", "检查", "分析", "拍摄", "拍照", "作业");
+        return stop && task;
+    }
+
+    /** 当前任务播报结束后，自动执行排队的新任务 */
+    private void runPendingTask() {
+        final String pending = pendingTaskCommand;
+        if (pending == null) return;
+        pendingTaskCommand = null;
+        pendingExecuting = true;
+        mainHandler.post(() -> {
+            try {
+                sendMessage(pending);
+            } finally {
+                pendingExecuting = false;
+            }
+        });
+    }
+
+    /**
+     * 结果播报前先等用户把话说完：任务完成时用户可能正在给小农下达新指令，
+     * 直接播报会抢走麦克风，导致刚说的话被吞掉。最多等约 5.6 秒。
+     */
+    private void announceWhenMicFree(Runnable announce) {
+        announceWhenMicFree(announce, 0);
+    }
+
+    private void announceWhenMicFree(Runnable announce, int attempt) {
+        if (wakeEnabled && wakeState == WSTATE_RECORD && attempt < 8) {
+            mainHandler.postDelayed(() -> announceWhenMicFree(announce, attempt + 1), 700);
+            return;
+        }
+        announce.run();
+    }
+
     /** 一键全检：拍摄完成，AI 分析开始 */
     public void notifyInspectionStarted(String caseId) {
         if (!isAdded()) return;
         addAiBubble("**一键全检**：自动拍摄完成，正在调用 AI 多模态分析（可见光+热成像融合识别），请稍候…");
-        speakText("自动拍摄完成，正在分析，请稍候");
+        announceWhenMicFree(() -> speakText("自动拍摄完成，正在分析，请稍候"));
+    }
+
+    public void notifyInspectionCollecting(boolean includeXray) {
+        if (!isAdded()) return;
+        String message = includeXray
+                ? "可见光和热成像已保存，正在记录3秒毫米波数据，并按设定时长曝光、等待X-Ray图像回传。"
+                : "迷你主机未连接，本次不曝光、不等待X-Ray。正在记录3秒毫米波数据，随后分析可见光和热成像。";
+        addAiBubble(message);
+        announceWhenMicFree(() -> speakInterruptibleText(message));
     }
 
     /** 一键全检：分析完成，展示报告并语音播报"对象速览"结论 */
@@ -3019,12 +3518,24 @@ public class ChatFragment extends Fragment {
         if (!isAdded()) return;
         if (report == null || report.trim().isEmpty()) {
             addAiBubble("**一键全检**：AI 分析未返回有效内容。");
-            speakText("AI分析没有返回内容，请重试");
+            announceWhenMicFree(() -> speakText("AI分析没有返回内容，请重试", this::runPendingTask));
             return;
         }
         addAiBubble("**一键全检完成**，AI 分析报告已生成并保存到历史记录：\n\n" + report);
         String summary = buildInspectionSpokenSummary(report);
-        speakInterruptibleText(summary + "完整分析报告已经保存。你可以点击分析报告，或者到历史记录中打开本次记录查看。");
+        // 任务完成播报后直接进入连续聆听：用户可立即下达下一条指令，无需再叫"小农小农"
+        announceWhenMicFree(() -> speakFollowUpQuestion(
+                summary + "完整分析报告已经保存。你可以点击分析报告，或者到历史记录中打开本次记录查看。",
+                "● 继续聆听，可直接说指令", this::runPendingTask));
+    }
+
+    public void askInspectionImageWait() {
+        String question = "30秒内没有收到X-Ray图像。需要继续等待吗？可以说继续等待，或者不等了。继续等待不会重复曝光。";
+        addAiBubble(question);
+        announceWhenMicFree(() -> {
+            if (getActivity() instanceof MainActivity && ((MainActivity) getActivity()).isAwaitingInspectionImageDecision())
+                speakFollowUpQuestion(question);
+        });
     }
 
     /** 一键全检：失败。autoOpenAi 为 true 表示已自动跳到 AI 分析页供手动重试 */
@@ -3033,10 +3544,10 @@ public class ChatFragment extends Fragment {
         String detail = error == null ? "未知错误" : error;
         if (autoOpenAi) {
             addAiBubble("**一键全检失败**：" + detail + "\n\n已为你打开**AI分析页**并选中该案例，可以手动重新分析。");
-            speakText("一键全检失败，已为你打开AI分析页，可以手动重新分析");
+            announceWhenMicFree(() -> speakText("一键全检失败，已为你打开AI分析页，可以手动重新分析", this::runPendingTask));
         } else {
             addAiBubble("**一键全检失败**：" + detail);
-            speakText("一键全检失败，" + detail);
+            announceWhenMicFree(() -> speakText("一键全检失败，" + detail, this::runPendingTask));
         }
     }
 
@@ -3073,7 +3584,15 @@ public class ChatFragment extends Fragment {
                 return ensureSentence("分析完成，" + line);
             }
         }
-        return "分析完成，简要结果已经生成。";
+        // Older reports may have no standard conclusion heading. Read actual body text.
+        for (String raw : lines) {
+            String line = raw.replaceAll("[*#`]+", "").replaceFirst("^[\\-*>\\d.、\\s]+", "").trim();
+            if (line.length() < 8 || line.contains("检测时间") || line.contains("基本信息")
+                    || line.contains("检测分析报告") || line.contains("仅供") || line.contains("免责声明")) continue;
+            if (line.length() > 120) line = line.substring(0, 120);
+            return ensureSentence("报告要点是，" + line);
+        }
+        return "这份报告没有可概括的正文，可以继续读取完整内容。";
     }
 
     private String ensureSentence(String text) {

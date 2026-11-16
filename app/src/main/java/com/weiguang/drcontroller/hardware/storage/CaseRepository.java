@@ -253,6 +253,50 @@ public final class CaseRepository {
                 .apply();
     }
 
+    /** Save only received readings for the three-second capture window, never synthetic samples. */
+    public static void saveRadarWindow(Context context, String caseId, long startTime, List<RadarReading> readings) {
+        try {
+            org.json.JSONObject window = new org.json.JSONObject();
+            org.json.JSONArray samples = new org.json.JSONArray();
+            for (RadarReading reading : readings) {
+                org.json.JSONObject sample = new org.json.JSONObject();
+                sample.put("timeMillis", reading.getDataTimeMillis());
+                sample.put("distance", reading.getDistance());
+                sample.put("breathRate", reading.getBreathRate());
+                sample.put("heartRate", reading.getHeartRate());
+                sample.put("totalPhase", Float.isFinite(reading.getTotalPhase()) ? reading.getTotalPhase() : org.json.JSONObject.NULL);
+                sample.put("breathPhase", Float.isFinite(reading.getBreathPhase()) ? reading.getBreathPhase() : org.json.JSONObject.NULL);
+                sample.put("heartPhase", Float.isFinite(reading.getHeartPhase()) ? reading.getHeartPhase() : org.json.JSONObject.NULL);
+                samples.put(sample);
+            }
+            window.put("startTimeMillis", startTime);
+            window.put("windowMillis", 3000);
+            window.put("sampleCount", readings.size());
+            window.put("status", readings.isEmpty() ? "未收到毫米波数据" : "已保存真实毫米波序列");
+            window.put("samples", samples);
+            java.io.File dir = new java.io.File(context.getFilesDir(), "radar_windows");
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("Cannot create radar window directory");
+            java.io.File file = new java.io.File(dir, caseId.replaceAll("[^A-Za-z0-9_-]", "_") + ".json");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+                out.write(window.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            saveRadarSnapshot(context, caseId, readings.isEmpty() ? RadarReading.empty() : readings.get(readings.size() - 1), startTime);
+        } catch (Exception error) {
+            android.util.Log.e("WG-RADAR", "Cannot save three-second radar window", error);
+        }
+    }
+
+    public static String getRadarWindowSummary(Context context, String caseId) {
+        java.io.File file = new java.io.File(new java.io.File(context.getFilesDir(), "radar_windows"),
+                caseId.replaceAll("[^A-Za-z0-9_-]", "_") + ".json");
+        if (!file.isFile()) return "";
+        try {
+            String json = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            org.json.JSONObject data = new org.json.JSONObject(json);
+            return "毫米波观测窗口：3秒，真实样本" + data.optInt("sampleCount") + "条；" + data.optString("status");
+        } catch (Exception error) { return "毫米波序列暂不可读取"; }
+    }
+
     /** 标记该案例的AI报告已读（查看后历史蓝点消失）。 */
     public static void markAiReportRead(Context context, String caseId) {
         if (context == null || isBlank(caseId)) return;
@@ -354,6 +398,9 @@ public final class CaseRepository {
                     deleteImage(resolver, image);
                 }
                 clearMetadata(appContext, record.getCaseId());
+                java.io.File radarFile = new java.io.File(new java.io.File(appContext.getFilesDir(), "radar_windows"),
+                        record.getCaseId().replaceAll("[^A-Za-z0-9_-]", "_") + ".json");
+                if (radarFile.exists() && !radarFile.delete()) throw new java.io.IOException("毫米波序列删除失败");
                 if (callback != null) MAIN_HANDLER.post(callback::onDeleted);
             } catch (Exception exception) {
                 postDeleteError(

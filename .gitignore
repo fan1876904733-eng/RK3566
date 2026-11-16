@@ -1,5 +1,6 @@
 # Android / Gradle generated files
 .gradle/
+.gradle-home/
 build/
 app/build/
 local.properties

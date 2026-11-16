@@ -2,6 +2,8 @@ package com.weiguang.drcontroller.ui;
 
 import android.content.Context;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -76,10 +78,15 @@ public class AiFragment extends Fragment {
 
     private void loadCases() {
         Context appContext = requireContext().getApplicationContext();
+        View requestedView = requireView();
+        Handler mainHandler = new Handler(Looper.getMainLooper());
         executor.execute(() -> {
             List<CaseRepository.CaseRecord> loaded = CaseRepository.queryCases(appContext, 120);
-            if (!isAdded()) return;
-            requireActivity().runOnUiThread(() -> bindCases(loaded));
+            mainHandler.post(() -> {
+                // Voice navigation may remove this page while its cases are loading.
+                if (!isAdded() || getView() != requestedView) return;
+                bindCases(loaded);
+            });
         });
     }
 
@@ -151,6 +158,12 @@ public class AiFragment extends Fragment {
         analyzeButton.setEnabled(true);
         viewReportButton.setVisibility(record.hasAiReport() ? View.VISIBLE : View.GONE);
         viewReportButton.setEnabled(record.hasAiReport());
+    }
+
+    public String getSelectedCaseId() {
+        int position = caseSpinner == null ? -1 : caseSpinner.getSelectedItemPosition();
+        return position >= 0 && position < cases.size()
+                ? cases.get(position).getCaseId() : requestedCaseId;
     }
 
     private void openSelectedReport() {
