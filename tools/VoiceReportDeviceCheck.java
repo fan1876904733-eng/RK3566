@@ -57,6 +57,20 @@ public final class VoiceReportDeviceCheck extends Instrumentation {
             stopWake.invoke(chat);
             stopTts.invoke(chat);
             field(chat, "ttsEnabled").setBoolean(chat, false);
+            Method wake = chat.getClass().getDeclaredMethod("onWakeRecognized", String.class, boolean.class);
+            wake.setAccessible(true);
+            field(chat, "wakeEnabled").setBoolean(chat, true);
+            field(chat, "wakeSessionActive").setBoolean(chat, false);
+            field(chat, "ttsPlaying").setBoolean(chat, true);
+            wake.invoke(chat, "小农正在读取这份报告", false);
+            if (field(chat, "wakeSessionActive").getBoolean(chat))
+                throw new AssertionError("Speaker echo triggered wake during playback");
+            field(chat, "ttsPlaying").setBoolean(chat, false);
+            wake.invoke(chat, "小农正在读取这份报告", true);
+            if (field(chat, "wakeSessionActive").getBoolean(chat))
+                throw new AssertionError("Delayed playback ASR triggered wake after playback");
+            field(chat, "wakeEnabled").setBoolean(chat, false);
+            checked += 2;
         });
 
         Class<?> repository = activity.getClassLoader().loadClass(

@@ -128,6 +128,8 @@ public class ChatFragment extends Fragment {
     // TTS 播放队列：连续播报排队串行播放，不再互相打断
     private final java.util.ArrayDeque<TtsTask> ttsQueue = new java.util.ArrayDeque<>();
     private boolean ttsPlaying = false;
+    private int speechEpoch = 0;
+    private long speechEndedMs = 0L;
     private int ttsGeneration = 0;
     private final ConcurrentHashMap<String, byte[]> shortTtsCache = new ConcurrentHashMap<>();
 
@@ -1884,6 +1886,8 @@ public class ChatFragment extends Fragment {
             return;
         }
         String plain = stripEmoji(text).replaceAll("[*#`\\-]", "").trim();
+        // The speaker must not pronounce the repeated interruption password itself.
+        for (String alias : WAKE_WORD_ALIASES) plain = plain.replace(alias + alias, alias);
         final String spoken;
         if (plain.length() > 200) {
             spoken = plain.substring(0, 200);
@@ -1904,6 +1908,12 @@ public class ChatFragment extends Fragment {
         final TtsTask task = ttsQueue.pollFirst();
         if (task == null) return;
         ttsPlaying = true;
+        speechEpoch++;
+        lastSpokenReply = task.spoken;
+        // The short wake acknowledgement intentionally records the user's question
+        // concurrently; its audio is trimmed by wakeTrimPoint after completion.
+        if (wakeEnabled && !("我在".equals(task.spoken) && wakeState == WSTATE_RECORD))
+            wakeState = WSTATE_WAIT_TTS;
         byte[] cached = shortTtsCache.get(task.spoken);
         if (cached != null && cached.length > 0) {
             playTtsAudio(cached, () -> finishTtsTask(task, task.onDone));
@@ -1963,6 +1973,8 @@ public class ChatFragment extends Fragment {
         mainHandler.post(() -> {
             if (task.generation != ttsGeneration) return;
             ttsPlaying = false;
+            speechEndedMs = System.currentTimeMillis();
+            lastSpokenReplyEndMs = speechEndedMs;
             if (onDone != null) onDone.run();
             playNextTts();
         });
@@ -2018,6 +2030,8 @@ public class ChatFragment extends Fragment {
 
     /** 立即停止语音播报（闭嘴按钮），并取消尚未播报的排队任务 */
     private void stopTts() {
+        speechEpoch++;
+        speechEndedMs = System.currentTimeMillis();
         // 使正在下载但尚未播放的旧任务失效，保证语音打断后不会“又自己说起来”。
         ttsGeneration++;
         if (ttsPlayer != null) {
@@ -2324,6 +2338,9 @@ public class ChatFragment extends Fragment {
     // 处理唤醒音频：上传识别，检查有没有唤醒词
     private void handleWakeAudio(byte[] pcmData) {
         if (streaming || pcmData == null || pcmData.length < 3200) return;
+        final boolean interruptOnly = ttsPlaying || !ttsQueue.isEmpty()
+                || wakeState == WSTATE_WAIT_TTS
+                || System.currentTimeMillis() - speechEndedMs < 600L;
         if (!wakeAsrInFlight.compareAndSet(false, true)) {
             Log.d("WAKE", "唤醒 ASR 忙，忽略重叠音频");
             return;
@@ -2344,7 +2361,7 @@ public class ChatFragment extends Fragment {
                     String text = json.getJSONArray("result").getString(0);
                     Log.d("WAKE", "唤醒 ASR 返回 chars=" + (text == null ? 0 : text.length())
                             + " latencyMs=" + (System.currentTimeMillis() - wakeAsrStartedMs));
-                    mainHandler.post(() -> onWakeRecognized(text));
+                    mainHandler.post(() -> onWakeRecognized(text, interruptOnly));
                 } else {
                     Log.d("WAKE", "唤醒识别失败 errNo=" + errNo + " msg=" + json.optString("err_msg"));
                 }
@@ -2358,11 +2375,17 @@ public class ChatFragment extends Fragment {
 
     // 识别结果回调
     private void onWakeRecognized(String text) {
+        onWakeRecognized(text, false);
+    }
+
+    private void onWakeRecognized(String text, boolean interruptOnly) {
         if (!wakeEnabled || (wakeState != WSTATE_LISTEN && wakeState != WSTATE_WAIT_TTS)) return;
         if (text == null || text.trim().isEmpty()) return;
         text = text.trim();
 
-        final boolean interruptingSpeech = wakeState == WSTATE_WAIT_TTS;
+        final boolean interruptingSpeech = interruptOnly || ttsPlaying || !ttsQueue.isEmpty()
+                || wakeState == WSTATE_WAIT_TTS
+                || System.currentTimeMillis() - speechEndedMs < 600L;
         // 播报内容可能偶然包含一次“小农”。打断时要求用户连续叫两次，避免扬声器自唤醒。
         if (interruptingSpeech && !containsRepeatedWakeWord(text)) {
             Log.d("WAKE", "播报期间忽略非重复唤醒词 chars=" + text.length());
@@ -2492,6 +2515,8 @@ public class ChatFragment extends Fragment {
 
     // 处理用户问题音频：上传识别后自动发送
     private void handleQuestionAudio(byte[] pcmData) {
+        if (ttsPlaying || !ttsQueue.isEmpty()) return;
+        final int recordedSpeechEpoch = speechEpoch;
         if (pcmData == null) {
             wakeState = WSTATE_LISTEN;
             return;
@@ -2532,6 +2557,9 @@ public class ChatFragment extends Fragment {
                 if (errNo == 0) {
                         String text = json.getJSONArray("result").getString(0);
                         mainHandler.post(() -> {
+                            // A delayed ASR response may contain audio from before/during
+                            // a newer spoken reply. Never submit it as a fresh question.
+                            if (recordedSpeechEpoch != speechEpoch || ttsPlaying || !ttsQueue.isEmpty()) return;
                             statusText.setText("● 在线");
                             statusText.setTextColor(Color.parseColor("#70D69B"));
                             String recognized = text == null ? "" : text.trim();
