@@ -101,6 +101,8 @@ public class CaseDetailFragment extends Fragment {
             );
         }
         reportText.setText(record.hasAiReport() ? record.getAiReport() : "尚未进行AI分析");
+        String radarWindow = CaseRepository.getRadarWindowSummary(requireContext(), record.getCaseId());
+        if (!radarWindow.isEmpty()) radarText.append("\n" + radarWindow);
 
         loadImage(record.getCameraImage(), R.id.caseCameraImage, R.id.caseCameraEmptyText);
         loadImage(record.getThermalImage(), R.id.caseThermalImage, R.id.caseThermalEmptyText);

@@ -59,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_BOOT_LOCK_ENABLED = "boot_lock_enabled";
     private static final String ACTION_USB_RADAR_PERMISSION =
             "com.weiguang.drcontroller.USB_RADAR_PERMISSION";
+    private static final String ACTION_USB_THERMAL_PERMISSION = "com.weiguang.drcontroller.USB_THERMAL_STARTUP_PERMISSION";
 
 
     private static final int IMMERSIVE_FLAGS =
@@ -128,6 +129,13 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            if (ACTION_USB_THERMAL_PERMISSION.equals(action)) {
+                if (device != null && device.getVendorId() == 0x2bdf && device.getProductId() == 0x0101
+                        && intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
+                    com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.getInstance(MainActivity.this).start();
+                else updateThermalStatus(false, "热成像等待USB授权");
+                return;
+            }
 
             if (ACTION_USB_RADAR_PERMISSION.equals(action)) {
                 if (device != null
@@ -141,13 +149,22 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                if (device != null && device.getVendorId() == 0x2bdf && device.getProductId() == 0x0101) {
+                    thermalPermissionRequestedFor = null;
+                    tryAutoConnectThermal();
+                }
                 if (HlkLd6002RadarAdapter.isSupportedDevice(device)) {
-                    tryAutoConnectRadar(false);
+                    radarPermissionRequestedFor = null;
+                    tryAutoConnectRadar(true);
                 }
                 return;
             }
 
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                if (device != null && device.getVendorId() == 0x2bdf && device.getProductId() == 0x0101) {
+                    com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.getInstance(MainActivity.this).stop();
+                    updateThermalStatus(false, "热成像已断开");
+                }
                 if (device != null
                         && connectedRadarUsbDevice != null
                         && device.getDeviceId() == connectedRadarUsbDevice.getDeviceId()) {
@@ -165,6 +182,44 @@ public class MainActivity extends AppCompatActivity {
     private com.weiguang.drcontroller.ui.ChatFragment chatFragment;
     private Fragment currentPageFragment;
     private boolean latestMiniHostConnected = false;
+    private TextView voiceStatusBadge;
+    private com.weiguang.drcontroller.hardware.camera.BackgroundCameraController backgroundCamera;
+    private boolean cameraPermissionRequested;
+    private String radarPermissionRequestedFor;
+    private String thermalPermissionRequestedFor;
+    private final com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.Listener startupThermalListener =
+            new com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.Listener() {
+        @Override public void onStatus(String status) { }
+        @Override public void onFrame(android.graphics.Bitmap frame) { if (!thermalConnected) updateThermalStatus(true, "热成像已自动连接"); }
+        @Override public void onError(String error) { updateThermalStatus(false, error); }
+    };
+    private final Runnable reconnectDevices = new Runnable() {
+        @Override public void run() {
+            if (isFinishing() || isDestroyed()) return;
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                if (!(currentPageFragment instanceof PreviewFragment) && backgroundCamera != null) backgroundCamera.start();
+            } else if (!cameraPermissionRequested) {
+                cameraPermissionRequested = true;
+                requestPermissions(new String[]{Manifest.permission.CAMERA}, 3003);
+            }
+            tryAutoConnectThermal();
+            if (!latestRadarReading.isConnected() && connectedRadarUsbDevice == null) {
+                UsbDevice device = findLd6002UsbDevice();
+                boolean request = device != null && !device.getDeviceName().equals(radarPermissionRequestedFor);
+                if (request) radarPermissionRequestedFor = device.getDeviceName();
+                tryAutoConnectRadar(request);
+            }
+            getWindow().getDecorView().postDelayed(this, 5000L);
+        }
+    };
+    private final android.os.Handler inspectionHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private com.weiguang.drcontroller.hardware.InspectionFlow inspectionFlow;
+    private final java.util.ArrayList<RadarReading> inspectionRadar = new java.util.ArrayList<>();
+    private long inspectionRadarEnd;
+    private String inspectionHint;
+    private boolean inspectionExposureSent;
+    private AlertDialog inspectionWaitDialog;
+    private final Runnable inspectionTimeout = this::checkInspectionImageTimeout;
     private String latestMiniHostName = "--";
     private String latestMiniHostMessage = "等待迷你主机连接";
     private final BluetoothXrayManager.Listener mainXrayListener =
@@ -244,7 +299,8 @@ public class MainActivity extends AppCompatActivity {
         if (Math.abs(validTime - now) > 10L * 60L * 1000L) {
             validTime = now;
         }
-        String caseId = ImageRepository.buildCaptureId(validTime);
+        String caseId = inspectionRunning && inspectionFlow != null
+                ? inspectionFlow.caseId : ImageRepository.buildCaptureId(validTime);
         CaseRepository.saveAiReport(MainActivity.this, caseId, reportText);
         CaseRepository.ensureCaseTime(MainActivity.this, caseId, validTime);
         Toast.makeText(
@@ -263,12 +319,23 @@ public class MainActivity extends AppCompatActivity {
         if (Math.abs(validCaptureTime - now) > 10L * 60L * 1000L) {
             validCaptureTime = now;
         }
-        String caseId = ImageRepository.buildCaptureId(validCaptureTime);
+        final com.weiguang.drcontroller.hardware.InspectionFlow receivingInspection = inspectionFlow;
+        boolean matchesInspection = inspectionRunning && receivingInspection != null && receivingInspection.acceptsXray();
+        String caseId = matchesInspection ? receivingInspection.caseId : ImageRepository.buildCaptureId(validCaptureTime);
         CaseRepository.activateCase(MainActivity.this, caseId, validCaptureTime);
-        CaseRepository.saveRadarSnapshot(MainActivity.this, caseId, latestRadarReading, validCaptureTime);
+        if (!matchesInspection) CaseRepository.saveRadarSnapshot(MainActivity.this, caseId, latestRadarReading, validCaptureTime);
         updateXrayStatus(true, "X-Ray图像已接收，正在归档");
         ImageRepository.saveXrayBytes(MainActivity.this, imageBytes, validCaptureTime, caseId, new ImageRepository.SaveCallback() {
-            @Override public void onSaved(Uri uri) { updateXrayStatus(true, ""); Toast.makeText(MainActivity.this, "✓ 图片传输成功", Toast.LENGTH_SHORT).show(); }
+            @Override public void onSaved(Uri uri) {
+                updateXrayStatus(true, "");
+                Toast.makeText(MainActivity.this, "✓ 图片传输成功", Toast.LENGTH_SHORT).show();
+                if (matchesInspection && inspectionFlow == receivingInspection && inspectionRunning) {
+                    receivingInspection.xrayComplete();
+                    inspectionHandler.removeCallbacks(inspectionTimeout);
+                    if (inspectionWaitDialog != null) inspectionWaitDialog.dismiss();
+                    maybeAnalyzeInspection();
+                }
+            }
             @Override public void onError(String message) { updateXrayStatus(true, "X-Ray已显示，保存失败"); }
         });
     }
@@ -368,6 +435,12 @@ public class MainActivity extends AppCompatActivity {
 
         bindViews();
         setButtonEvents();
+        backgroundCamera = new com.weiguang.drcontroller.hardware.camera.BackgroundCameraController(this,
+                (connected, message) -> runOnUiThread(() -> {
+                    if (!(currentPageFragment instanceof PreviewFragment) && cameraConnected != connected)
+                        updateCameraStatus(connected, message);
+                }));
+        com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.getInstance(this).addListener(startupThermalListener);
 
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
         radarAdapter = new HlkLd6002RadarAdapter(this);
@@ -385,7 +458,7 @@ public class MainActivity extends AppCompatActivity {
         // 如果系统已经保存了USB授权，开机后自动恢复LD6002连接；
         // 首次授权仍由用户点击右侧“连接毫米波雷达”触发。
         getWindow().getDecorView().postDelayed(
-                () -> tryAutoConnectRadar(false),
+                reconnectDevices,
                 900L
         );
 
@@ -514,6 +587,7 @@ public class MainActivity extends AppCompatActivity {
             String description,
             RadarPanelMode panelMode
     ) {
+        if (backgroundCamera != null && fragment instanceof PreviewFragment) backgroundCamera.stopForPreview();
         FragmentManager fm = getSupportFragmentManager();
         // 立即执行排队中的页面切换事务：连续快速点击/语音连发指令时，上一次的
         // add/hide/remove 可能还在排队未执行，若此时基于过时快照做清理决策，
@@ -548,6 +622,10 @@ public class MainActivity extends AppCompatActivity {
         // 同步完成隐藏/移除/显示，避免旧 View 在下一帧继续参与绘制形成残影。
         tx.commitNowAllowingStateLoss();
         currentPageFragment = fragment;
+        if (backgroundCamera != null && !(fragment instanceof PreviewFragment))
+            getWindow().getDecorView().postDelayed(() -> {
+                if (!(currentPageFragment instanceof PreviewFragment) && !isDestroyed()) backgroundCamera.start();
+            }, 500L);
 
         // 设备首页按设计稿隐藏底部状态条，其他页面保留
         if (bottomStatusBar != null) {
@@ -689,6 +767,11 @@ public class MainActivity extends AppCompatActivity {
     public void updateRadarReading(RadarReading reading) {
         runOnUiThread(() -> {
             latestRadarReading = reading == null ? RadarReading.empty() : reading;
+            if (inspectionRunning && inspectionFlow != null
+                    && android.os.SystemClock.elapsedRealtime() < inspectionRadarEnd
+                    && latestRadarReading.isConnected()
+                    && (inspectionRadar.isEmpty() || inspectionRadar.get(inspectionRadar.size() - 1).getDataTimeMillis()
+                    != latestRadarReading.getDataTimeMillis())) inspectionRadar.add(latestRadarReading);
             if (radarSummaryText != null) {
                 radarSummaryText.setText(
                         latestRadarReading.isConnected()
@@ -911,6 +994,11 @@ public class MainActivity extends AppCompatActivity {
     public void stopCurrentTask() {
         taskGeneration++;
         inspectionRunning = false;
+        if (inspectionFlow != null) inspectionFlow.cancel();
+        inspectionHandler.removeCallbacksAndMessages(null);
+        if (inspectionWaitDialog != null) inspectionWaitDialog.dismiss();
+        if (inspectionExposureSent) com.weiguang.drcontroller.hardware.xray.Xray433Controller.getInstance(this).releaseTubeVoltage();
+        inspectionExposureSent = false;
         openChatPage();
         Toast.makeText(this, "已停止当前任务", Toast.LENGTH_SHORT).show();
     }
@@ -929,8 +1017,13 @@ public class MainActivity extends AppCompatActivity {
      */
     public void runFullInspectionByCommand(String userHint) {
         if (inspectionRunning) return; // 全检进行中不重复启动
+        inspectionHandler.removeCallbacksAndMessages(null);
+        if (inspectionFlow != null) inspectionFlow.cancel();
+        inspectionFlow = null;
+        inspectionExposureSent = false;
         inspectionRunning = true;
         final int generation = ++taskGeneration;
+        final boolean includeXray = latestMiniHostConnected;
         PreviewFragment preview = new PreviewFragment(true);
         final String hint = userHint == null ? "" : userHint.trim();
         preview.setCaseCaptureListener(new PreviewFragment.CaseCaptureListener() {
@@ -938,7 +1031,90 @@ public class MainActivity extends AppCompatActivity {
             public void onPairedCaseSaved(String caseId, long timeMillis) {
                 if (generation != taskGeneration) return; // 任务已被"停止"指令作废
                 lastCapturedCaseId = caseId;
-                if (chatFragment != null) chatFragment.notifyInspectionStarted(caseId);
+                beginInspectionCollection(caseId, timeMillis, hint, includeXray, generation);
+            }
+
+            @Override
+            public void onAutoCaptureFailed(String message) {
+                if (generation != taskGeneration) return;
+                inspectionRunning = false;
+                if (chatFragment != null) chatFragment.notifyInspectionError(message, false);
+            }
+        });
+        openPage(preview, cameraPreviewButton, "摄像头", "一键全检：正在采集", RadarPanelMode.HIDDEN);
+    }
+
+    private void beginInspectionCollection(String caseId, long timeMillis, String hint, boolean includeXray, int generation) {
+        inspectionHint = hint;
+        inspectionRadar.clear();
+        inspectionExposureSent = false;
+        inspectionFlow = new com.weiguang.drcontroller.hardware.InspectionFlow(caseId, includeXray,
+                android.os.SystemClock.elapsedRealtime());
+        inspectionRadarEnd = android.os.SystemClock.elapsedRealtime() + 3000;
+        final long radarStartTime = System.currentTimeMillis();
+        if (includeXray) {
+            com.weiguang.drcontroller.hardware.xray.Xray433Controller controller =
+                    com.weiguang.drcontroller.hardware.xray.Xray433Controller.getInstance(this);
+            if (!controller.isHardwareReady()) {
+                inspectionRunning = false;
+                inspectionFlow.cancel();
+                if (chatFragment != null) chatFragment.notifyInspectionError("射线源控制未就绪，未执行曝光。可见光和热成像已保存。", false);
+                return;
+            }
+            com.weiguang.drcontroller.hardware.xray.Xray433Controller.SendResult result =
+                    controller.startTimedExposureMillis(getSelectedExposureDuration());
+            if (!result.success) {
+                inspectionRunning = false;
+                inspectionFlow.cancel();
+                if (chatFragment != null) chatFragment.notifyInspectionError(result.message, false);
+                return;
+            }
+            inspectionExposureSent = true;
+            inspectionHandler.postDelayed(inspectionTimeout, 30000L);
+        }
+        if (chatFragment != null) chatFragment.notifyInspectionCollecting(includeXray);
+        inspectionHandler.postDelayed(() -> {
+            if (!inspectionRunning || generation != taskGeneration) return;
+            CaseRepository.saveRadarWindow(this, caseId, radarStartTime, new java.util.ArrayList<>(inspectionRadar));
+            inspectionFlow.radarComplete();
+            maybeAnalyzeInspection();
+        }, 3000L);
+    }
+
+    public boolean isAwaitingInspectionImageDecision() {
+        return inspectionRunning && inspectionFlow != null && inspectionFlow.isAwaitingDecision();
+    }
+
+    private void checkInspectionImageTimeout() {
+        if (!inspectionRunning || inspectionFlow == null
+                || !inspectionFlow.askOnTimeout(android.os.SystemClock.elapsedRealtime())) return;
+        if (chatFragment != null) chatFragment.askInspectionImageWait();
+        inspectionWaitDialog = new AlertDialog.Builder(this)
+                .setTitle("尚未收到X-Ray图像")
+                .setMessage("30秒内未收到图像，是否继续等待？继续等待不会再次曝光。")
+                .setPositiveButton("继续等待", (dialog, which) -> answerInspectionImageWait(true))
+                .setNegativeButton("不等了，继续分析", (dialog, which) -> answerInspectionImageWait(false))
+                .setCancelable(false).show();
+    }
+
+    public void answerInspectionImageWait(boolean keepWaiting) {
+        if (!isAwaitingInspectionImageDecision()) return;
+        if (inspectionWaitDialog != null) inspectionWaitDialog.dismiss();
+        if (keepWaiting) {
+            inspectionFlow.continueWaiting(android.os.SystemClock.elapsedRealtime());
+            inspectionHandler.postDelayed(inspectionTimeout, 30000L);
+        } else {
+            inspectionFlow.skipXray();
+            maybeAnalyzeInspection();
+        }
+    }
+
+    private void maybeAnalyzeInspection() {
+        if (!inspectionRunning || inspectionFlow == null || !inspectionFlow.beginAnalysis()) return;
+        if (chatFragment != null) chatFragment.notifyInspectionStarted(inspectionFlow.caseId);
+        final int generation = taskGeneration;
+        final String caseId = inspectionFlow.caseId;
+        final String hint = inspectionHint;
                 CaseRepository.CaseRecord record = CaseRepository.findCase(getApplicationContext(), caseId);
                 if (record == null) {
                     inspectionRunning = false;
@@ -967,24 +1143,25 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                 );
-            }
+    }
 
-            @Override
-            public void onAutoCaptureFailed(String message) {
-                if (generation != taskGeneration) return;
-                inspectionRunning = false;
-                if (chatFragment != null) {
-                    chatFragment.notifyInspectionError(message + "，请检查热成像连接后重试", false);
-                }
-            }
-        });
-        openPage(
-                preview,
-                cameraPreviewButton,
-                "摄像头",
-                "一键全检：自动拍摄并调用AI分析",
-                RadarPanelMode.HIDDEN
-        );
+    public void showVoiceStatus(String text) {
+        if (voiceStatusBadge == null) {
+            voiceStatusBadge = new TextView(this);
+            voiceStatusBadge.setTextColor(Color.WHITE);
+            voiceStatusBadge.setTextSize(12);
+            voiceStatusBadge.setPadding(16, 8, 16, 8);
+            voiceStatusBadge.setBackgroundColor(Color.parseColor("#173957"));
+            voiceStatusBadge.setOnClickListener(v -> openChatPage());
+            android.widget.FrameLayout root = findViewById(android.R.id.content);
+            android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.BOTTOM | android.view.Gravity.RIGHT);
+            params.bottomMargin = 8;
+            params.rightMargin = 8;
+            root.addView(voiceStatusBadge, params);
+        }
+        voiceStatusBadge.setText(text);
     }
 
     public void openThermalPageByCommand() {
@@ -1189,6 +1366,7 @@ public class MainActivity extends AppCompatActivity {
     private void registerRadarUsbReceiver() {
         IntentFilter filter = new IntentFilter();
         filter.addAction(ACTION_USB_RADAR_PERMISSION);
+        filter.addAction(ACTION_USB_THERMAL_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
 
@@ -1260,6 +1438,22 @@ public class MainActivity extends AppCompatActivity {
         // 直接触发系统 USB 授权弹窗（"允许微光智造访问..."），
         // 不再叠加应用内确认框，避免用户每次要点两次。
         requestRadarUsbPermission(device);
+    }
+
+    private void tryAutoConnectThermal() {
+        if (usbManager == null) return;
+        UsbDevice device = UsbDeviceMatcher.findByVidPid(usbManager, 0x2bdf, 0x0101);
+        if (device == null) return;
+        if (usbManager.hasPermission(device)) {
+            com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.getInstance(this).ensureHealthyStream();
+        } else if (!device.getDeviceName().equals(thermalPermissionRequestedFor)) {
+            thermalPermissionRequestedFor = device.getDeviceName();
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags |= PendingIntent.FLAG_MUTABLE;
+            PendingIntent permission = PendingIntent.getBroadcast(this, 4117,
+                    new Intent(ACTION_USB_THERMAL_PERMISSION).setPackage(getPackageName()), flags);
+            usbManager.requestPermission(device, permission);
+        }
     }
 
     /** 触发系统 USB 授权（授权过一次后系统不再弹窗）。 */
@@ -1425,6 +1619,12 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        getWindow().getDecorView().removeCallbacks(reconnectDevices);
+        if (backgroundCamera != null) backgroundCamera.release();
+        com.weiguang.drcontroller.hardware.thermal.HikThermalSdkBridge.getInstance(this).removeListener(startupThermalListener);
+        inspectionHandler.removeCallbacksAndMessages(null);
+        if (inspectionFlow != null) inspectionFlow.cancel();
+        if (inspectionExposureSent) com.weiguang.drcontroller.hardware.xray.Xray433Controller.getInstance(this).releaseTubeVoltage();
         if (xrayManager != null) {
             xrayManager.removeListener(mainXrayListener);
         }

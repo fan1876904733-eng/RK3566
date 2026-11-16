@@ -73,6 +73,10 @@ public final class HikThermalSdkBridge {
     private Object streamCallback;
     private Object streamCallbackParam;
     private volatile boolean firstFrameLogged;
+    private volatile long streamStartedMs;
+    private volatile long lastFrameMs;
+    private volatile boolean recoveringStream;
+    private int emptyStreamRetries;
     private int userId = -1;
     private int streamHandle = -1;
     private volatile boolean running;
@@ -94,6 +98,24 @@ public final class HikThermalSdkBridge {
 
     public boolean isRunning() {
         return running;
+    }
+
+    /** A native handle without incoming images is not a healthy connection. */
+    public void ensureHealthyStream() {
+        if (!running) { start(); return; }
+        long now = android.os.SystemClock.elapsedRealtime();
+        long retryAfterMs = emptyStreamRetries < 2 ? 8000L : 30000L;
+        if (now - Math.max(streamStartedMs, lastFrameMs) < retryAfterMs || recoveringStream) return;
+        Handler active = worker;
+        if (active == null) return;
+        recoveringStream = true;
+        active.post(() -> {
+            notifyError("热成像未收到画面，正在自动重连");
+            stopInternal();
+            emptyStreamRetries++;
+            recoveringStream = false;
+            start();
+        });
     }
 
     private void notifyStatus(String status) {
@@ -242,6 +264,8 @@ public final class HikThermalSdkBridge {
                             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0,
                                     Math.min(length, bytes.length));
                             if (bitmap != null) {
+                                lastFrameMs = android.os.SystemClock.elapsedRealtime();
+                                emptyStreamRetries = 0;
                                 if (!firstFrameLogged) {
                                     firstFrameLogged = true;
                                     Log.i(TAG, "received first thermal frame, bytes=" + length
@@ -267,7 +291,8 @@ public final class HikThermalSdkBridge {
                     streamCallbackParam.getClass()).invoke(api, userId, streamCallbackParam);
             if (streamHandle < 0) throw sdkError("USB_StartStreamCallback失败");
             running = true;
-            status("热成像正常 · MJPEG 240×320");
+            streamStartedMs = android.os.SystemClock.elapsedRealtime();
+            status("热成像已启动，等待画面 · MJPEG 240×320");
         } catch (Throwable t) {
             Log.e(TAG, "start failed", t);
             notifyError(rootMessage(t));
@@ -401,6 +426,7 @@ public final class HikThermalSdkBridge {
         userId = -1;
         streamHandle = -1;
         firstFrameLogged = false;
+        lastFrameMs = 0;
         streamCallbackParam = null;
         streamCallback = null;
         api = null;

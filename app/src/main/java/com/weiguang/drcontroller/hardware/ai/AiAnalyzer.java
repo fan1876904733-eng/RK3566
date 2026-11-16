@@ -71,6 +71,8 @@ public final class AiAnalyzer {
                 }
                 String systemPrompt = buildSystemPrompt();
                 String userText = buildAnalysisPrompt(record, userHint);
+                String radarWindow = CaseRepository.getRadarWindowSummary(appContext, record.getCaseId());
+                if (!radarWindow.isEmpty()) userText += "\n" + radarWindow + "。样本不足时不得编造生命体征结论。";
                 new DeepSeekClient().chatWithImages(
                         systemPrompt,
                         userText,
